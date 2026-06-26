@@ -361,6 +361,8 @@ function NavBtn({ icon, label, active, onClick, count }) {
   );
 }
 
+const AZP_UPGRADE_PRO_V2 = true;
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState("");
@@ -1271,7 +1273,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                     {blocked ? <div className="note danger-note">Bloqueada: no puede pasar a diseño hasta resolver material.</div> : null}
 
                     <div className="task-actions">
-                      <button type="button" onClick={() => setModalPub(p)}>Ver / Editar</button>
+                      <button type="button" onClick={() => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p)}>Ver / Editar</button>
 
                       {staff && p.estado === "Guion Pendiente" ? (
                         <button type="button" onClick={() => updatePubState(p.id, "En Diseño")}>Tomar diseño</button>
@@ -3020,6 +3022,77 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   .report-controls { grid-template-columns: 1fr; }
   .task-actions { grid-template-columns: 1fr; }
 }
+
+/* AZP_UPGRADE_PRO_V2 - mejoras visuales seguras */
+.kanban-col {
+  background: linear-gradient(180deg, #f8fafc, #eef2ff) !important;
+  border: 1px solid rgba(148,163,184,.30) !important;
+  border-radius: 24px !important;
+  padding: 18px !important;
+  box-shadow: 0 20px 50px rgba(15,23,42,.08) !important;
+}
+.task {
+  border-radius: 22px !important;
+  padding: 20px !important;
+  background: rgba(255,255,255,.94) !important;
+  box-shadow: 0 16px 34px rgba(15,23,42,.08) !important;
+  transition: transform .18s ease, box-shadow .18s ease !important;
+}
+.task:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 24px 46px rgba(15,23,42,.12) !important;
+}
+.task-actions button {
+  min-height: 44px !important;
+  border: 0 !important;
+  border-radius: 14px !important;
+  font-weight: 900 !important;
+  background: #eef2ff !important;
+  color: #334155 !important;
+}
+.task-actions button:hover {
+  background: var(--c-primary) !important;
+  color: #fff !important;
+}
+.calendar-grid {
+  border-radius: 28px !important;
+  overflow: hidden !important;
+  box-shadow: 0 24px 60px rgba(15,23,42,.10) !important;
+  border: 1px solid rgba(148,163,184,.28) !important;
+}
+.event {
+  border-radius: 16px !important;
+  padding: 12px !important;
+  box-shadow: 0 12px 28px rgba(15,23,42,.12) !important;
+  transition: transform .16s ease, box-shadow .16s ease !important;
+}
+.event:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 36px rgba(15,23,42,.18) !important;
+}
+.pauta-layout {
+  background: linear-gradient(135deg,#ffffff,#f8fafc) !important;
+  border-radius: 22px !important;
+}
+.pauta-side {
+  background: linear-gradient(180deg,#f8fafc,#eef2ff) !important;
+  border-left: 1px solid rgba(148,163,184,.26) !important;
+}
+.social-picker label {
+  border-radius: 16px !important;
+  transition: transform .16s ease, box-shadow .16s ease !important;
+}
+.social-picker label:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 30px rgba(15,23,42,.10) !important;
+}
+.report-sheet {
+  background: #fff !important;
+  border-radius: 24px !important;
+  overflow: hidden !important;
+  box-shadow: 0 30px 80px rgba(15,23,42,.10) !important;
+}
+
 @media print {
   .report-controls, .sidebar, .topbar { display: none !important; }
   .main, .content { padding: 0 !important; margin: 0 !important; width: 100% !important; }
