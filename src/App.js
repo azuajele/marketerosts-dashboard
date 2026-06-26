@@ -361,7 +361,7 @@ function NavBtn({ icon, label, active, onClick, count }) {
   );
 }
 
-const AZP_UPGRADE_PRO_V2 = true;
+const AZP_FIX_FINAL_EXACT = true;
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -995,7 +995,7 @@ function DashboardView({ user, stats, empresas, calendario }) {
             <div className="ops-alert danger"><strong>🚨 Atrasadas:</strong> {stats.vencidas} publicación(es) no cumplieron el calendario.</div>
           ) : null}
           {stats.faltaMaterial > 0 ? (
-            <div className="ops-alert amber"><strong>📁 Falta material:</strong> {stats.faltaMaterial} publicación(es) bloqueadas por falta de material en Drive.</div>
+            <div className="ops-alert amber"><strong>📁 Material opcional:</strong> {stats.faltaMaterial} publicación(es) bloqueadas por falta de material en Drive.</div>
           ) : null}
         </div>
       ) : null}
@@ -1008,7 +1008,7 @@ function DashboardView({ user, stats, empresas, calendario }) {
 
       {designer && stats.guionesListosDiseno > 0 ? (
         <div className="role-alert blue">
-          <strong>🎨 Guiones listos para diseño:</strong> tienes {stats.guionesListosDiseno} publicación(es) con guion creado. Revisa quién lo creó y si hay material en Drive.
+          <strong>🎨 Guiones listos para diseño:</strong> tienes {stats.guionesListosDiseno} publicación(es) con guion creado. Revisa quién lo creó y si hay material de apoyo opcional.
         </div>
       ) : null}
 
@@ -1029,9 +1029,9 @@ function DashboardView({ user, stats, empresas, calendario }) {
             </div>
           </div>
           <div className="card">
-            <div className="card-head"><h3>Bloqueos y atrasos</h3><p>Falta de material o publicaciones que no se cumplieron.</p></div>
+            <div className="card-head"><h3>Bloqueos y atrasos</h3><p>Material opcional pendiente o publicaciones que no se cumplieron.</p></div>
             <div className="mini-list">
-              {faltanMaterial.map((p) => (<AlertMiniRow key={`m-${p.id}`} p={p} tone="red" label="Falta material" />))}
+              {faltanMaterial.map((p) => (<AlertMiniRow key={`m-${p.id}`} p={p} tone="red" label="Material opcional" />))}
               {publicacionesVencidas.map((p) => (<AlertMiniRow key={`v-${p.id}`} p={p} tone="red" label="Atrasada" />))}
               {faltanMaterial.length + publicacionesVencidas.length === 0 ? <div className="empty">Sin bloqueos ni atrasos.</div> : null}
             </div>
@@ -1046,7 +1046,7 @@ function DashboardView({ user, stats, empresas, calendario }) {
             {guionesPendientes.map((p) => (
               <div key={p.id} className="mini-row">
                 <div><strong>{p.tema || "Sin tema"}</strong><span>{p.fecha} · {redesText(p.redes)} · Creado por: {p.creado_por || "Sin registro"}</span></div>
-                <Badge tone={p.material_drive ? "purple" : "red"}>{p.material_drive ? "Listo para diseño" : "Sin Drive"}</Badge>
+                <Badge tone={p.material_drive ? "purple" : "red"}>{p.material_drive ? "Con material" : "Material opcional"}</Badge>
               </div>
             ))}
             {guionesPendientes.length === 0 ? <div className="empty">No hay guiones pendientes para diseño.</div> : null}
@@ -1193,7 +1193,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
     <div className="card fade">
       <div className="card-head">
         <h3>Calendario Editorial</h3>
-        <p>Haz clic en cualquier publicación para editarla.</p>
+        <p>Haz clic en una publicación publicada para capturar métricas; las demás se editan.</p>
       </div>
 
       <div className="calendar">
@@ -1229,12 +1229,10 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
 
 function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, setModalRechazo, setModalMetricas, user }) {
   const admin = isAdminRole(user);
-  const writer = isWriterRole(user);
-  const designer = isDesignerRole(user);
   const staff = isStaffUser(user);
   const columns = [
     { title: "Guiones Pendientes", states: ["Guion Pendiente"] },
-    { title: "Bloqueados / Diseño", states: ["Falta Material Drive", "En Diseño", "Corrección"] },
+    { title: "Diseño / Correcciones", states: ["Falta Material Drive", "En Diseño", "Corrección"] },
     { title: "Para Revisión", states: ["Diseño Concluido"] },
     { title: "Aprobados / Publicados", states: ["Aprobado", "Publicado"] },
   ];
@@ -1251,10 +1249,10 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                 const emp = getEmpresa(p.empresa_id);
                 const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
                 const materialOk = hasMaterialDrive(p);
-                const blocked = p.estado === "Falta Material Drive";
+                const blocked = false;
                 return (
                   <article className={`task ${p.estado === "Publicado" ? "done" : ""} ${blocked ? "blocked" : ""}`} key={p.id}>
-                    <div className="task-top"><strong>{empresaNombre}</strong><Badge tone={toneForState(p.estado)}>{p.estado}</Badge></div>
+                    <div className="task-top"><strong>{empresaNombre}</strong><Badge tone={toneForState(p.estado)}>{labelEstado(p.estado)}</Badge></div>
                     <p className="task-title">{p.tema || "Sin tema"}</p>
                     <small>{p.fecha} · {p.formato} · {redesText(p.redes)}</small>
                     <div className="task-meta">
@@ -1270,7 +1268,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                       {p.metricas_capturadas_por ? <span>📊 Métricas: {p.metricas_capturadas_por}</span> : null}
                     </div>
                     {p.notas ? <div className="note">Nota: {p.notas}</div> : null}
-                    {blocked ? <div className="note danger-note">Bloqueada: no puede pasar a diseño hasta resolver material.</div> : null}
+                    {p.estado === "Falta Material Drive" ? <div className="note">Material opcional pendiente. No bloquea el flujo: cualquier staff puede tomar diseño.</div> : null}
 
                     <div className="task-actions">
                       <button type="button" onClick={() => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p)}>Ver / Editar</button>
@@ -1284,7 +1282,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                       ) : null}
 
                       {staff && p.estado === "Falta Material Drive" ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "Guion Pendiente", { notas: "Material revisado / listo para diseño." })}>Regresar a guion</button>
+                        <button type="button" onClick={() => updatePubState(p.id, "Guion Pendiente", { notas: "Material opcional revisado / listo para continuar." })}>Regresar a guion</button>
                       ) : null}
 
                       {admin && p.estado === "Diseño Concluido" ? (
@@ -1470,8 +1468,10 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
       return;
     }
 
-    if (!isValidEmail(emp.email)) {
-      setReportMsg("La empresa no tiene un correo válido registrado.");
+    const emailDestino = emp.email_cobranza || emp.email_facturacion || emp.email || emp.correo || "";
+
+    if (!isValidEmail(emailDestino)) {
+      setReportMsg("La empresa no tiene un correo válido registrado en CRM.");
       return;
     }
 
@@ -1489,6 +1489,10 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
       const { data } = await supabase.auth.getSession();
       const token = data?.session?.access_token || "";
 
+      if (!token) {
+        throw new Error("Sesión no válida. Cierra sesión y vuelve a entrar.");
+      }
+
       const res = await fetch("https://slvquciaioxogeqvfefu.functions.supabase.co/enviar-reporte-cliente", {
         method: "POST",
         headers: {
@@ -1496,7 +1500,7 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          to: emp.email,
+          to: emailDestino,
           empresa: emp.nombre,
           periodo: `${startDate} al ${endDate}`,
           subject: `Reporte de resultados - ${emp.nombre}`,
@@ -1510,7 +1514,7 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
         throw new Error(body.error || "No se pudo enviar el reporte.");
       }
 
-      setReportMsg(`✓ Reporte enviado a ${emp.email}`);
+      setReportMsg(`✓ Reporte enviado a ${emailDestino}`);
     } catch (error) {
       setReportMsg(`🚨 ${error.message}`);
     } finally {
@@ -1556,7 +1560,7 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
         <div className="status-summary">
           {['Guion Pendiente','Falta Material Drive','En Diseño','Corrección','Diseño Concluido','Aprobado','Publicado'].map((estado) => {
             const count = items.filter((p) => p.estado === estado).length;
-            return <div key={estado}><Badge tone={toneForState(estado)}>{estado}</Badge><strong>{count}</strong></div>;
+            return <div key={estado}><Badge tone={toneForState(estado)}>{labelEstado(estado)}</Badge><strong>{count}</strong></div>;
           })}
         </div>
 
@@ -1571,7 +1575,7 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
                   <td>{p.fecha}</td>
                   <td><strong>{p.formato}</strong><span>{p.tema || "Sin tema"}</span><span>{getEmpresa(p.empresa_id)?.nombre || p.empresa_nombre || "Sin empresa asignada"}</span></td>
                   <td>{redesText(p.redes)}</td>
-                  <td><Badge tone={toneForState(p.estado)}>{p.estado}</Badge></td>
+                  <td><Badge tone={toneForState(p.estado)}>{labelEstado(p.estado)}</Badge></td>
                   <td><span>Guion: {p.creado_por || "-"}</span><span>Diseño: {p.disenado_por || "-"}</span><span>Aprobó: {p.aprobado_por || "-"}</span></td>
                   <td><strong>{t.alcance.toLocaleString("es-MX")}</strong><span>{t.interacciones} interacciones · {t.comentarios} comentarios</span></td>
                 </tr>
@@ -2097,7 +2101,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
             <Field label="Fecha de publicación"><input type="date" value={form.fecha || today()} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></Field>
             <Field label="Formato"><select value={form.formato || "Reel"} onChange={(e) => setForm({ ...form, formato: e.target.value })}><option>Reel</option><option>Post</option><option>Carrusel</option><option>Historia</option><option>Video</option><option>Live</option></select></Field>
             <Field label="Prioridad"><select value={form.prioridad || "Media"} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}><option>Baja</option><option>Media</option><option>Alta</option><option>Urgente</option></select></Field>
-            {admin ? <Field label="Estado"><select value={form.estado || "Guion Pendiente"} onChange={(e) => setForm({ ...form, estado: e.target.value })}><option>Guion Pendiente</option><option>En Diseño</option><option>Falta Material Drive</option><option>Corrección</option><option>Diseño Concluido</option><option>Aprobado</option><option>Publicado</option></select></Field> : <Field label="Estado"><input value={form.estado || "Guion Pendiente"} readOnly /></Field>}
+            {admin ? <Field label="Estado"><select value={form.estado || "Guion Pendiente"} onChange={(e) => setForm({ ...form, estado: e.target.value })}><option>Guion Pendiente</option><option>En Diseño</option><option value="Falta Material Drive">Material opcional pendiente</option><option>Corrección</option><option>Diseño Concluido</option><option>Aprobado</option><option>Publicado</option></select></Field> : <Field label="Estado"><input value={form.estado || "Guion Pendiente"} readOnly /></Field>}
             <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
           </div>
 
@@ -2495,6 +2499,11 @@ function LoginScreen({ onLogin, error, agencia, isLoading }) {
       </div>
     </div>
   );
+}
+
+function labelEstado(estado = "") {
+  if (estado === "Falta Material Drive") return "Material opcional pendiente";
+  return estado || "Sin estado";
 }
 
 function toneForState(estado = "") {
@@ -3098,6 +3107,38 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   .main, .content { padding: 0 !important; margin: 0 !important; width: 100% !important; }
   .report-sheet { box-shadow: none !important; border-radius: 0 !important; }
 }
+
+
+
+/* AZP FIX FINAL EXACT - mejoras visibles de producción, calendario y reportes */
+.kanban { gap: 22px !important; align-items: stretch !important; }
+.kanban-col { background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%) !important; border: 1px solid rgba(148,163,184,.32) !important; border-radius: 28px !important; padding: 16px !important; box-shadow: 0 24px 64px rgba(15,23,42,.10) !important; overflow: visible !important; }
+.kanban-col h3 { padding: 4px 4px 16px !important; margin: 0 !important; color: #1e293b !important; font-size: 15px !important; letter-spacing: .02em !important; text-transform: uppercase !important; }
+.task { border-radius: 24px !important; padding: 22px !important; background: rgba(255,255,255,.98) !important; border: 1px solid rgba(148,163,184,.30) !important; border-left: 6px solid var(--c-primary) !important; box-shadow: 0 18px 42px rgba(15,23,42,.10) !important; }
+.task:hover { transform: translateY(-3px) !important; box-shadow: 0 28px 70px rgba(15,23,42,.15) !important; }
+.task.done { border-left-color: var(--green) !important; background: linear-gradient(180deg,#ffffff,#f0fdf4) !important; }
+.task-title { font-size: 18px !important; color: #1e293b !important; }
+.task-meta { background: #f8fafc !important; border: 1px solid rgba(226,232,240,.9) !important; border-radius: 16px !important; padding: 12px !important; }
+.task-meta .muted { color: #64748b !important; font-weight: 800 !important; }
+.task-actions { gap: 10px !important; }
+.task-actions button { min-height: 44px !important; border-radius: 15px !important; font-weight: 900 !important; background: #eef2ff !important; color: #334155 !important; }
+.task-actions button:hover { background: var(--c-primary) !important; color: #fff !important; }
+.calendar { border-radius: 30px !important; overflow: hidden !important; border: 1px solid rgba(148,163,184,.30) !important; box-shadow: 0 24px 70px rgba(15,23,42,.10) !important; }
+.day { min-height: 150px !important; background: linear-gradient(180deg,#ffffff,#f8fafc) !important; }
+.event { border-radius: 17px !important; padding: 12px !important; box-shadow: 0 12px 30px rgba(15,23,42,.14) !important; transition: transform .16s ease, box-shadow .16s ease !important; }
+.event:hover { transform: translateY(-2px) !important; box-shadow: 0 18px 40px rgba(15,23,42,.20) !important; }
+.pauta-layout { border-radius: 26px !important; background: linear-gradient(135deg,#ffffff,#f8fafc) !important; border: 1px solid rgba(148,163,184,.24) !important; overflow: hidden !important; }
+.pauta-main { padding: 4px !important; }
+.pauta-side { background: linear-gradient(180deg,#f8fafc,#eef2ff) !important; border: 1px solid rgba(148,163,184,.24) !important; border-radius: 22px !important; }
+.social-picker label { border-radius: 17px !important; transition: transform .16s ease, box-shadow .16s ease !important; }
+.social-picker label:hover { transform: translateY(-2px) !important; box-shadow: 0 14px 34px rgba(15,23,42,.12) !important; }
+.report-controls { display: grid !important; grid-template-columns: minmax(240px,1.1fr) minmax(170px,.7fr) minmax(170px,.7fr) 160px 180px !important; align-items: stretch !important; gap: 14px !important; }
+.report-controls .btn { min-height: 58px !important; white-space: normal !important; line-height: 1.25 !important; }
+.report-controls .btn.secondary { background: #eef2ff !important; color: #334155 !important; border: 1px solid rgba(148,163,184,.28) !important; }
+.report-msg { grid-column: 1 / -1 !important; padding: 14px 16px !important; border-radius: 16px !important; background: #f8fafc !important; color: #475569 !important; font-weight: 900 !important; }
+.report-sheet { border-radius: 28px !important; overflow: hidden !important; box-shadow: 0 32px 90px rgba(15,23,42,.13) !important; }
+@media (max-width: 1100px) { .report-controls { grid-template-columns: 1fr 1fr !important; } }
+@media (max-width: 760px) { .report-controls { grid-template-columns: 1fr !important; } }
 
 @media print {
   .sidebar, .topbar, .report-controls { display: none !important; }
