@@ -364,7 +364,10 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState("");
   const [tab, setTab] = useState("dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth > 760;
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [systemMessage, setSystemMessage] = useState("");
 
@@ -852,7 +855,11 @@ ${error.message}`);
           </div>
         </div>
 
-        <nav>
+        <nav onClick={(e) => {
+          if (typeof window !== "undefined" && window.innerWidth <= 760 && e.target.closest("button")) {
+            setSidebarOpen(false);
+          }
+        }}>
           <small>Principal</small>
           <NavBtn icon={ICONS.dash} label="Dashboard" active={tab === "dashboard"} onClick={() => setTab("dashboard")} />
           <NavBtn icon={ICONS.cal} label="Calendario Visual" active={tab === "calendario"} onClick={() => setTab("calendario")} />
@@ -2860,6 +2867,76 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
 .status-summary strong { font-size: 22px; }
 .report-table-pro { margin: 0 34px 24px; width: calc(100% - 68px); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 .report-warning { margin: 0 34px 30px; padding: 14px; background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 12px; font-weight: 700; }
+
+
+/* FIX SOLO MÓVIL: menú lateral responsive sin afectar escritorio */
+@media (max-width: 760px) {
+  .app-shell {
+    width: 100vw;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    inset: 0 auto 0 0;
+    width: min(84vw, 330px) !important;
+    max-width: 330px;
+    height: 100dvh;
+    z-index: 1000;
+    transform: translateX(0);
+    box-shadow: 22px 0 55px rgba(15, 23, 42, .28);
+    transition: transform .22s ease, box-shadow .22s ease;
+  }
+
+  .sidebar.collapsed {
+    width: min(84vw, 330px) !important;
+    transform: translateX(-105%);
+    box-shadow: none;
+  }
+
+  .main {
+    width: 100vw;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .topbar {
+    height: 64px;
+    padding: 0 14px;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  .topbar h2 {
+    font-size: 15px;
+  }
+
+  .topbar p,
+  .sync {
+    display: none;
+  }
+
+  .content {
+    padding: 14px;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .calendar-shell,
+  .calendar-grid,
+  .calendar-board {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .btn,
+  .icon-btn {
+    touch-action: manipulation;
+  }
+}
 
 @media print {
   .sidebar, .topbar, .report-controls { display: none !important; }
