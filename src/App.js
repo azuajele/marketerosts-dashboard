@@ -188,6 +188,7 @@ const isAdminEmail = (email) => ADMIN_EMAILS.includes(cleanEmail(email));
 const isAdminRole = (user) => ["Directora", "Administrador"].includes(user?.role);
 const isWriterRole = (user) => String(user?.role || "").toLowerCase().includes("guionista");
 const isDesignerRole = (user) => String(user?.role || "").toLowerCase().includes("diseñador") || String(user?.role || "").toLowerCase().includes("disenador");
+const isStaffUser = (user) => Boolean(user?.email && isAllowedUser(user.email));
 
 const getRoleByEmail = (email) => {
   const e = cleanEmail(email);
@@ -756,23 +757,15 @@ ${response.error.message}`);
     const requiereAdmin = ["Aprobado", "Publicado", "Corrección"].includes(estado);
     const requiereDiseno = ["En Diseño", "Falta Material Drive", "Diseño Concluido"].includes(estado);
 
-    if (current?.estado === "Falta Material Drive" && ["En Diseño", "Diseño Concluido"].includes(estado)) {
-      setSystemMessage("🚨 Esta publicación está bloqueada por falta de material en Drive. Primero Thalia, Luis o Paloma deben resolver el material y regresarla a Guion Pendiente.");
-      return;
-    }
-
-    if (estado === "En Diseño" && !hasMaterialDrive(current)) {
-      setSystemMessage("🚨 No se puede pasar a diseño porque no hay link/material de Drive registrado. Marca 'Sin material' para que Thalia y Luis reciban la alerta.");
-      return;
-    }
+    // El material/Drive ahora es opcional. No bloquea el flujo operativo.
 
     if (requiereAdmin && !admin) {
       setSystemMessage("🚨 Solo Thalia o Luis pueden aprobar, rechazar o marcar una publicación como publicada.");
       return;
     }
 
-    if (requiereDiseno && !(admin || designer)) {
-      setSystemMessage("🚨 Solo Jarek, Thalia o Luis pueden mover una publicación en producción/diseño.");
+    if (requiereDiseno && !isStaffUser(user)) {
+      setSystemMessage("🚨 Solo el staff autorizado puede mover una publicación en producción/diseño.");
       return;
     }
 
@@ -795,8 +788,8 @@ ${error.message}`);
   };
 
   const saveMetricas = async (id, metricas) => {
-    if (!(isAdminRole(user) || isWriterRole(user))) {
-      setSystemMessage("🚨 Solo Paloma, Thalia o Luis pueden capturar métricas.");
+    if (!isStaffUser(user)) {
+      setSystemMessage("🚨 Solo el staff autorizado puede capturar métricas.");
       return;
     }
 
@@ -832,7 +825,7 @@ ${error.message}`);
   }
 
   const canAdmin = isAdminRole(user);
-  const canCreatePauta = canAdmin || isWriterRole(user);
+  const canCreatePauta = isStaffUser(user);
 
   return (
     <div className="app-shell">
@@ -908,7 +901,7 @@ ${error.message}`);
               setModalConfirmDelete={setModalConfirmDelete}
             />
           )}
-          {tab === "calendario" && <CalendarioView calendario={calendario} getEmpresa={getEmpresa} setModalPub={setModalPub} />}
+          {tab === "calendario" && <CalendarioView calendario={calendario} getEmpresa={getEmpresa} setModalPub={setModalPub} setModalMetricas={setModalMetricas} />}
           {tab === "produccion" && (
             <ProduccionView
               calendario={calendario}
@@ -1185,7 +1178,7 @@ function CRMView({ empresas, calendario, setModalCRM, setModalConsult, setModalC
   );
 }
 
-function CalendarioView({ calendario, getEmpresa, setModalPub }) {
+function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas }) {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth();
@@ -1218,7 +1211,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub }) {
                 const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
 
                 return (
-                  <button className={`event ${toneForState(p.estado)}`} type="button" key={p.id} onClick={() => setModalPub(p)}>
+                  <button className={`event ${toneForState(p.estado)}`} type="button" key={p.id} onClick={() => p.estado === "Publicado" ? setModalMetricas(p) : setModalPub(p)}>
                     <strong>{empresaNombre}</strong>
                     <small>{p.formato}</small>
                   </button>
@@ -1236,6 +1229,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
   const admin = isAdminRole(user);
   const writer = isWriterRole(user);
   const designer = isDesignerRole(user);
+  const staff = isStaffUser(user);
   const columns = [
     { title: "Guiones Pendientes", states: ["Guion Pendiente"] },
     { title: "Bloqueados / Diseño", states: ["Falta Material Drive", "En Diseño", "Corrección"] },
@@ -1264,7 +1258,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                     <div className="task-meta">
                       <span>🎯 {p.objetivo || "Sin objetivo"}</span>
                       <span>🚦 Prioridad: {p.prioridad || "Media"}</span>
-                      <span className={materialOk ? "ok" : "bad"}>📁 {materialOk ? "Material Drive cargado" : "Sin material Drive"}</span>
+                      <span className={materialOk ? "ok" : "muted"}>📁 {materialOk ? "Material de referencia cargado" : "Material opcional no cargado"}</span>
                     </div>
                     <div className="digital-footprint">
                       <span>✍️ Creado por: {p.creado_por || "Sin registro"}</span>
@@ -1279,20 +1273,16 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                     <div className="task-actions">
                       <button type="button" onClick={() => setModalPub(p)}>Ver / Editar</button>
 
-                      {designer && p.estado === "Guion Pendiente" && materialOk ? (
+                      {staff && p.estado === "Guion Pendiente" ? (
                         <button type="button" onClick={() => updatePubState(p.id, "En Diseño")}>Tomar diseño</button>
                       ) : null}
 
-                      {designer && p.estado === "Guion Pendiente" && !materialOk ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "Falta Material Drive", { notas: "Jarek reportó que no hay material suficiente en Drive.", material_drive: "" })}>Reportar sin material</button>
-                      ) : null}
-
-                      {designer && ["En Diseño", "Corrección"].includes(p.estado) ? (
+                      {staff && ["En Diseño", "Corrección"].includes(p.estado) ? (
                         <button type="button" onClick={() => updatePubState(p.id, "Diseño Concluido")}>Entregar diseño</button>
                       ) : null}
 
-                      {(admin || writer) && p.estado === "Falta Material Drive" ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "Guion Pendiente", { notas: "Material revisado / listo para diseño." })}>Material resuelto</button>
+                      {staff && p.estado === "Falta Material Drive" ? (
+                        <button type="button" onClick={() => updatePubState(p.id, "Guion Pendiente", { notas: "Material revisado / listo para diseño." })}>Regresar a guion</button>
                       ) : null}
 
                       {admin && p.estado === "Diseño Concluido" ? (
@@ -1306,7 +1296,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                         <button type="button" onClick={() => updatePubState(p.id, "Publicado")}>Marcar publicado</button>
                       ) : null}
 
-                      {(admin || writer) && p.estado === "Publicado" ? (
+                      {staff && p.estado === "Publicado" ? (
                         <button type="button" onClick={() => setModalMetricas(p)}>{p.metricas ? "Editar métricas" : "Capturar métricas"}</button>
                       ) : null}
                     </div>
@@ -1443,6 +1433,8 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
   const now = new Date();
   const [startDate, setStartDate] = useState(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState(new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10));
+  const [sendingReport, setSendingReport] = useState(false);
+  const [reportMsg, setReportMsg] = useState("");
 
   useEffect(() => {
     if (!reportEmp) setReportEmp("__all");
@@ -1467,6 +1459,64 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
     return acc;
   }, { alcance: 0, interacciones: 0, comentarios: 0 });
 
+
+  const sendReportToClient = async () => {
+    setReportMsg("");
+
+    if (reportAll || !emp) {
+      setReportMsg("Selecciona una sola empresa para enviar el reporte al cliente.");
+      return;
+    }
+
+    if (!isValidEmail(emp.email)) {
+      setReportMsg("La empresa no tiene un correo válido registrado.");
+      return;
+    }
+
+    const reportNode = document.querySelector(".report-sheet");
+    const html = reportNode?.outerHTML || "";
+
+    if (!html) {
+      setReportMsg("No se pudo preparar el reporte.");
+      return;
+    }
+
+    setSendingReport(true);
+
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token || "";
+
+      const res = await fetch("https://slvquciaioxogeqvfefu.functions.supabase.co/enviar-reporte-cliente", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          to: emp.email,
+          empresa: emp.nombre,
+          periodo: `${startDate} al ${endDate}`,
+          subject: `Reporte de resultados - ${emp.nombre}`,
+          html,
+        }),
+      });
+
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || "No se pudo enviar el reporte.");
+      }
+
+      setReportMsg(`✓ Reporte enviado a ${emp.email}`);
+    } catch (error) {
+      setReportMsg(`🚨 ${error.message}`);
+    } finally {
+      setSendingReport(false);
+    }
+  };
+
+
   if (!clientes.length) return <div className="card empty">Aún no hay clientes para generar reportes.</div>;
 
   return (
@@ -1476,6 +1526,8 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
         <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
         <button className="btn primary" type="button" onClick={() => window.print()}>Guardar PDF</button>
+        <button className="btn secondary" type="button" disabled={reportAll || sendingReport} onClick={sendReportToClient}>{sendingReport ? "Enviando..." : "Enviar al cliente"}</button>
+        {reportMsg ? <div className="report-msg">{reportMsg}</div> : null}
       </div>
 
       <div className="report-sheet premium-report">
@@ -2044,7 +2096,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
             <Field label="Formato"><select value={form.formato || "Reel"} onChange={(e) => setForm({ ...form, formato: e.target.value })}><option>Reel</option><option>Post</option><option>Carrusel</option><option>Historia</option><option>Video</option><option>Live</option></select></Field>
             <Field label="Prioridad"><select value={form.prioridad || "Media"} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}><option>Baja</option><option>Media</option><option>Alta</option><option>Urgente</option></select></Field>
             {admin ? <Field label="Estado"><select value={form.estado || "Guion Pendiente"} onChange={(e) => setForm({ ...form, estado: e.target.value })}><option>Guion Pendiente</option><option>En Diseño</option><option>Falta Material Drive</option><option>Corrección</option><option>Diseño Concluido</option><option>Aprobado</option><option>Publicado</option></select></Field> : <Field label="Estado"><input value={form.estado || "Guion Pendiente"} readOnly /></Field>}
-            <Field label="Material / Drive"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value })} placeholder="Pega el link de Drive o carpeta de recursos" /></Field>
+            <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
           </div>
 
           <div className="span-2"><Field label="Tema / Título"><input value={form.tema || ""} onChange={(e) => setForm({ ...form, tema: e.target.value })} placeholder="Ej. Lanzamiento de nuevo servicio, campaña del mes, promoción..." /></Field></div>
@@ -2064,7 +2116,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
               </label>
             ))}
           </div>
-          <div className="pauta-note"><strong>Regla operativa:</strong> si no hay material en Drive, Jarek puede bloquear la publicación y Thalia/Luis verán alerta automática.</div>
+          <div className="pauta-note"><strong>Flujo flexible:</strong> el material es opcional. Cualquier miembro autorizado del staff puede tomar diseño, entregar, publicar o capturar métricas según su acceso.</div>
         </aside>
       </div>
 
@@ -2936,6 +2988,42 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   .icon-btn {
     touch-action: manipulation;
   }
+}
+
+
+/* UPGRADE PRODUCCIÓN / CALENDARIO / REPORTES */
+.kanban { gap: 18px; align-items: flex-start; }
+.kanban-col { background: linear-gradient(180deg, #f8fafc, #eef2ff); border: 1px solid rgba(148,163,184,.28); border-radius: 24px; padding: 18px; box-shadow: 0 20px 50px rgba(15,23,42,.08); }
+.kanban-col h3 { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 15px; letter-spacing: .02em; text-transform: uppercase; color: #334155; }
+.task { border: 1px solid rgba(148,163,184,.32); border-left: 6px solid var(--c-primary); border-radius: 22px; padding: 20px; background: rgba(255,255,255,.92); box-shadow: 0 16px 34px rgba(15,23,42,.08); transition: transform .18s ease, box-shadow .18s ease; }
+.task:hover { transform: translateY(-3px); box-shadow: 0 24px 46px rgba(15,23,42,.12); }
+.task.done { border-left-color: #16c784; background: linear-gradient(180deg,#ffffff,#f0fdf4); }
+.task-title { font-size: 18px; line-height: 1.3; color: #1e293b; margin: 12px 0 8px; }
+.task-meta { background: #f8fafc; border-radius: 16px; padding: 12px; margin-top: 12px; }
+.task-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; margin-top: 16px; }
+.task-actions button { min-height: 44px; border: 0; border-radius: 14px; font-weight: 900; background: #eef2ff; color: #334155; cursor: pointer; }
+.task-actions button:hover { background: var(--c-primary); color: #fff; }
+.calendar-grid { border-radius: 28px; overflow: hidden; box-shadow: 0 24px 60px rgba(15,23,42,.10); border: 1px solid rgba(148,163,184,.28); }
+.day { min-height: 150px; background: linear-gradient(180deg,#ffffff,#f8fafc); }
+.event { border-radius: 16px; padding: 12px; box-shadow: 0 12px 28px rgba(15,23,42,.12); transform: translateZ(0); transition: transform .16s ease, box-shadow .16s ease; }
+.event:hover { transform: translateY(-2px); box-shadow: 0 18px 36px rgba(15,23,42,.18); }
+.event.tone-green, .event.green { cursor: pointer; }
+.pauta-layout { background: linear-gradient(135deg,#ffffff,#f8fafc); border-radius: 22px; }
+.pauta-side { background: linear-gradient(180deg,#f8fafc,#eef2ff); border-left: 1px solid rgba(148,163,184,.26); }
+.social-picker label { border-radius: 16px; transition: transform .16s ease, box-shadow .16s ease; }
+.social-picker label:hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(15,23,42,.10); }
+.report-controls { grid-template-columns: 1.1fr 1fr 1fr auto auto; align-items: center; }
+.report-msg { grid-column: 1 / -1; padding: 12px 14px; border-radius: 14px; background: #f8fafc; color: #475569; font-weight: 800; }
+.report-sheet { background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 30px 80px rgba(15,23,42,.10); }
+.report-table-pro tbody tr { break-inside: avoid; }
+@media (max-width: 900px) {
+  .report-controls { grid-template-columns: 1fr; }
+  .task-actions { grid-template-columns: 1fr; }
+}
+@media print {
+  .report-controls, .sidebar, .topbar { display: none !important; }
+  .main, .content { padding: 0 !important; margin: 0 !important; width: 100% !important; }
+  .report-sheet { box-shadow: none !important; border-radius: 0 !important; }
 }
 
 @media print {
