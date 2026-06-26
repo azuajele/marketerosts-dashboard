@@ -36,3 +36,126 @@
     transform: rotate(360deg);
   }
 }
+
+
+/* AZP REAL V3 - Producción, calendario, modal y reportes más profesionales */
+.kanban, .production-board {
+  gap: 20px !important;
+  align-items: flex-start !important;
+}
+
+.kanban-col, .production-column {
+  background: linear-gradient(180deg, #f8fafc, #eef2ff) !important;
+  border: 1px solid rgba(148, 163, 184, .35) !important;
+  border-radius: 26px !important;
+  padding: 18px !important;
+  box-shadow: 0 22px 55px rgba(15, 23, 42, .08) !important;
+}
+
+.task, .pauta-card, .publication-card {
+  border-radius: 24px !important;
+  padding: 20px !important;
+  background: rgba(255, 255, 255, .96) !important;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, .10) !important;
+  border: 1px solid rgba(148, 163, 184, .30) !important;
+  transition: transform .18s ease, box-shadow .18s ease !important;
+}
+
+.task:hover, .pauta-card:hover, .publication-card:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: 0 28px 60px rgba(15, 23, 42, .14) !important;
+}
+
+.task-actions, .card-actions {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+}
+
+.task-actions button, .card-actions button {
+  min-height: 44px !important;
+  border-radius: 16px !important;
+  border: 0 !important;
+  font-weight: 900 !important;
+}
+
+.calendar-grid {
+  border-radius: 30px !important;
+  overflow: hidden !important;
+  border: 1px solid rgba(148, 163, 184, .30) !important;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .10) !important;
+}
+
+.day {
+  background: linear-gradient(180deg, #ffffff, #f8fafc) !important;
+}
+
+.event {
+  border-radius: 17px !important;
+  padding: 12px !important;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, .14) !important;
+  transition: transform .16s ease, box-shadow .16s ease !important;
+}
+
+.event:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, .20) !important;
+}
+
+.pauta-layout, .modal-grid {
+  background: linear-gradient(135deg, #ffffff, #f8fafc) !important;
+  border-radius: 24px !important;
+}
+
+.pauta-side, .modal-side {
+  background: linear-gradient(180deg, #f8fafc, #eef2ff) !important;
+  border-left: 1px solid rgba(148, 163, 184, .28) !important;
+}
+
+.social-picker label {
+  border-radius: 17px !important;
+  transition: transform .16s ease, box-shadow .16s ease !important;
+}
+
+.social-picker label:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, .12) !important;
+}
+
+.report-controls {
+  gap: 14px !important;
+  align-items: stretch !important;
+}
+
+.report-controls .btn {
+  white-space: nowrap !important;
+  min-width: 160px !important;
+}
+
+.report-controls .btn.secondary {
+  background: #eef2ff !important;
+  color: #334155 !important;
+  border: 1px solid rgba(148, 163, 184, .28) !important;
+}
+
+.report-msg {
+  grid-column: 1 / -1 !important;
+  padding: 14px 16px !important;
+  border-radius: 16px !important;
+  background: #f8fafc !important;
+  color: #475569 !important;
+  font-weight: 900 !important;
+}
+
+.report-sheet {
+  background: #fff !important;
+  border-radius: 26px !important;
+  overflow: hidden !important;
+  box-shadow: 0 32px 90px rgba(15, 23, 42, .12) !important;
+}
+
+@media (max-width: 900px) {
+  .task-actions, .card-actions {
+    grid-template-columns: 1fr !important;
+  }
+}
