@@ -363,8 +363,6 @@ function NavBtn({ icon, label, active, onClick, count }) {
 
 const AZP_UPGRADE_PRO_V2 = true;
 
-const AZP_FIX_REAL_V3 = true;
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [loginError, setLoginError] = useState("");
@@ -500,7 +498,7 @@ ${error.message}`);
 
   const stats = useMemo(() => {
     const pendientes = calendario.filter((c) => c.estado === "Guion Pendiente").length;
-    const produccion = calendario.filter((c) => ["En Diseño", "Corrección", "Material opcional pendiente"].includes(c.estado)).length;
+    const produccion = calendario.filter((c) => ["En Diseño", "Corrección", "Falta Material Drive"].includes(c.estado)).length;
     const revision = calendario.filter((c) => c.estado === "Diseño Concluido").length;
     const listos = calendario.filter((c) => c.estado === "Aprobado").length;
     const publicados = calendario.filter((c) => c.estado === "Publicado").length;
@@ -508,7 +506,7 @@ ${error.message}`);
     const publicadasMes = calendario.filter((c) => String(c.fecha || "").startsWith(curMonthStr()) && c.estado === "Publicado").length;
     const publicacionesSinMetricas = calendario.filter((c) => c.estado === "Publicado" && !c.metricas).length;
     const guionesListosDiseno = calendario.filter((c) => c.estado === "Guion Pendiente").length;
-    const faltaMaterial = calendario.filter((c) => c.estado === "Material opcional pendiente").length;
+    const faltaMaterial = calendario.filter((c) => c.estado === "Falta Material Drive").length;
     const vencidas = calendario.filter((c) => isPastDate(c.fecha) && c.estado !== "Publicado").length;
     const paraHoy = calendario.filter((c) => isToday(c.fecha) && c.estado !== "Publicado").length;
     const alertas = faltaMaterial + vencidas + paraHoy;
@@ -756,11 +754,10 @@ ${response.error.message}`);
     const admin = isAdminRole(user);
     const writer = isWriterRole(user);
     const designer = isDesignerRole(user);
-  const staff = isStaffUser(user);
 
     const current = calendario.find((p) => sameId(p.id, id));
     const requiereAdmin = ["Aprobado", "Publicado", "Corrección"].includes(estado);
-    const requiereDiseno = ["En Diseño", "Material opcional pendiente", "Diseño Concluido"].includes(estado);
+    const requiereDiseno = ["En Diseño", "Falta Material Drive", "Diseño Concluido"].includes(estado);
 
     // El material/Drive ahora es opcional. No bloquea el flujo operativo.
 
@@ -775,7 +772,7 @@ ${response.error.message}`);
     }
 
     const payload = { estado, ...extra };
-    if (estado === "Material opcional pendiente") payload.material_drive = "";
+    if (estado === "Falta Material Drive") payload.material_drive = "";
 
     if (["En Diseño", "Corrección", "Diseño Concluido"].includes(estado)) payload.disenado_por = user.name;
     if (estado === "Aprobado") payload.aprobado_por = user.name;
@@ -980,7 +977,7 @@ function DashboardView({ user, stats, empresas, calendario }) {
   const publicacionesSinMetricas = calendario.filter((p) => p.estado === "Publicado" && !p.metricas).slice(0, 8);
   const publicacionesHoy = calendario.filter((p) => isToday(p.fecha) && p.estado !== "Publicado").slice(0, 8);
   const publicacionesVencidas = calendario.filter((p) => isPastDate(p.fecha) && p.estado !== "Publicado").slice(0, 8);
-  const faltanMaterial = calendario.filter((p) => p.estado === "Material opcional pendiente").slice(0, 8);
+  const faltanMaterial = calendario.filter((p) => p.estado === "Falta Material Drive").slice(0, 8);
 
   return (
     <div className="fade">
@@ -1237,7 +1234,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
   const staff = isStaffUser(user);
   const columns = [
     { title: "Guiones Pendientes", states: ["Guion Pendiente"] },
-    { title: "Bloqueados / Diseño", states: ["Material opcional pendiente", "En Diseño", "Corrección"] },
+    { title: "Bloqueados / Diseño", states: ["Falta Material Drive", "En Diseño", "Corrección"] },
     { title: "Para Revisión", states: ["Diseño Concluido"] },
     { title: "Aprobados / Publicados", states: ["Aprobado", "Publicado"] },
   ];
@@ -1254,7 +1251,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                 const emp = getEmpresa(p.empresa_id);
                 const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
                 const materialOk = hasMaterialDrive(p);
-                const blocked = p.estado === "Material opcional pendiente";
+                const blocked = p.estado === "Falta Material Drive";
                 return (
                   <article className={`task ${p.estado === "Publicado" ? "done" : ""} ${blocked ? "blocked" : ""}`} key={p.id}>
                     <div className="task-top"><strong>{empresaNombre}</strong><Badge tone={toneForState(p.estado)}>{p.estado}</Badge></div>
@@ -1286,7 +1283,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                         <button type="button" onClick={() => updatePubState(p.id, "Diseño Concluido")}>Entregar diseño</button>
                       ) : null}
 
-                      {staff && p.estado === "Material opcional pendiente" ? (
+                      {staff && p.estado === "Falta Material Drive" ? (
                         <button type="button" onClick={() => updatePubState(p.id, "Guion Pendiente", { notas: "Material revisado / listo para diseño." })}>Regresar a guion</button>
                       ) : null}
 
@@ -1557,7 +1554,7 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
 
         <div className="report-section-title">Resumen por estado</div>
         <div className="status-summary">
-          {['Guion Pendiente','Material opcional pendiente','En Diseño','Corrección','Diseño Concluido','Aprobado','Publicado'].map((estado) => {
+          {['Guion Pendiente','Falta Material Drive','En Diseño','Corrección','Diseño Concluido','Aprobado','Publicado'].map((estado) => {
             const count = items.filter((p) => p.estado === estado).length;
             return <div key={estado}><Badge tone={toneForState(estado)}>{estado}</Badge><strong>{count}</strong></div>;
           })}
@@ -2100,7 +2097,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
             <Field label="Fecha de publicación"><input type="date" value={form.fecha || today()} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></Field>
             <Field label="Formato"><select value={form.formato || "Reel"} onChange={(e) => setForm({ ...form, formato: e.target.value })}><option>Reel</option><option>Post</option><option>Carrusel</option><option>Historia</option><option>Video</option><option>Live</option></select></Field>
             <Field label="Prioridad"><select value={form.prioridad || "Media"} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}><option>Baja</option><option>Media</option><option>Alta</option><option>Urgente</option></select></Field>
-            {admin ? <Field label="Estado"><select value={form.estado || "Guion Pendiente"} onChange={(e) => setForm({ ...form, estado: e.target.value })}><option>Guion Pendiente</option><option>En Diseño</option><option>Material opcional pendiente</option><option>Corrección</option><option>Diseño Concluido</option><option>Aprobado</option><option>Publicado</option></select></Field> : <Field label="Estado"><input value={form.estado || "Guion Pendiente"} readOnly /></Field>}
+            {admin ? <Field label="Estado"><select value={form.estado || "Guion Pendiente"} onChange={(e) => setForm({ ...form, estado: e.target.value })}><option>Guion Pendiente</option><option>En Diseño</option><option>Falta Material Drive</option><option>Corrección</option><option>Diseño Concluido</option><option>Aprobado</option><option>Publicado</option></select></Field> : <Field label="Estado"><input value={form.estado || "Guion Pendiente"} readOnly /></Field>}
             <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
           </div>
 
@@ -2506,7 +2503,7 @@ function toneForState(estado = "") {
   if (estado === "Diseño Concluido") return "purple";
   if (estado === "En Diseño") return "blue";
   if (estado === "Corrección") return "amber";
-  if (estado === "Material opcional pendiente") return "red";
+  if (estado === "Falta Material Drive") return "red";
   return "gray";
 }
 
