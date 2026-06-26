@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+
+.env
+.env.local
+.env.*.local
+
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backups locales
+.env.backup
+*.backup
+backup-antes-fix/
+
+# Archivos temporales
+*~
