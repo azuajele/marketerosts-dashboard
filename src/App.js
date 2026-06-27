@@ -671,9 +671,10 @@ ${error.message}`);
 
     const admin = isAdminRole(user);
     const isNew = !data.id;
-    const estadoSeguro = admin
-      ? (data.estado || "Guion Pendiente")
-      : (isNew ? "Guion Pendiente" : data.estado || "Guion Pendiente");
+    const materialMissing = Boolean(data.material_missing || data.sin_material || data.estado === "Falta Material Drive");
+    const estadoSeguro = materialMissing
+      ? "Falta Material Drive"
+      : (admin ? (data.estado || "Guion Pendiente") : (isNew ? "Guion Pendiente" : data.estado || "Guion Pendiente"));
 
     const redes = Array.isArray(data.redes) ? data.redes : [];
 
@@ -683,6 +684,9 @@ ${error.message}`);
     }
 
     const selectedEmpresa = empresas.find((e) => sameId(e.id, data.empresa_id));
+    const notaMaterial = materialMissing
+      ? `Sin material de apoyo reportado por ${user.name}. Paloma y administración deben revisar recursos para esta publicación.`
+      : (data.notas || "");
 
     const payload = {
       empresa_id: normalizeId(data.empresa_id),
@@ -693,13 +697,13 @@ ${error.message}`);
       tema: safeString(data.tema),
       copy: data.copy || "",
       objetivo: data.objetivo || "",
-      material_drive: safeString(data.material_drive),
+      material_drive: materialMissing ? "" : safeString(data.material_drive),
       prioridad: data.prioridad || "Media",
       notas_internas: data.notas_internas || "",
       estado: estadoSeguro,
-      notas: data.notas || "",
+      notas: notaMaterial,
       creado_por: data.creado_por || user.name,
-      disenado_por: data.disenado_por || "",
+      disenado_por: estadoSeguro === "En Diseño" ? (data.disenado_por || user.name) : (data.disenado_por || ""),
       aprobado_por: data.aprobado_por || "",
       publicado_por: data.publicado_por || "",
       metricas: data.metricas || null,
@@ -715,6 +719,9 @@ ${error.message}`);
 ${response.error.message}`);
     } else {
       setModalPub(null);
+      const avisoPrioridad = ["Alta", "Urgente"].includes(payload.prioridad) ? `\n\n⚡ Prioridad ${payload.prioridad}: aparecerá en alertas operativas.` : "";
+      const avisoMaterial = materialMissing ? `\n\n📁 Se registró como publicación sin material. Aparecerá en alertas para Paloma y administración.` : "";
+      if (avisoPrioridad || avisoMaterial) setSystemMessage(`Publicación guardada correctamente.${avisoPrioridad}${avisoMaterial}`);
       await fetchCloudData();
     }
   };
@@ -752,29 +759,55 @@ ${response.error.message}`);
 
   const updatePubState = async (id, estado, extra = {}) => {
     const admin = isAdminRole(user);
-    const writer = isWriterRole(user);
-    const designer = isDesignerRole(user);
+    const staff = isStaffUser(user);
 
     const current = calendario.find((p) => sameId(p.id, id));
+    if (!current) {
+      setSystemMessage("🚨 No encontré esta publicación en el calendario.");
+      return;
+    }
+
     const requiereAdmin = ["Aprobado", "Publicado", "Corrección"].includes(estado);
     const requiereDiseno = ["En Diseño", "Falta Material Drive", "Diseño Concluido"].includes(estado);
-
-    // El material/Drive ahora es opcional. No bloquea el flujo operativo.
+    const ownerDiseno = current.disenado_por || "";
 
     if (requiereAdmin && !admin) {
       setSystemMessage("🚨 Solo Thalia o Luis pueden aprobar, rechazar o marcar una publicación como publicada.");
       return;
     }
 
-    if (requiereDiseno && !isStaffUser(user)) {
+    if (requiereDiseno && !staff) {
       setSystemMessage("🚨 Solo el staff autorizado puede mover una publicación en producción/diseño.");
       return;
     }
 
-    const payload = { estado, ...extra };
-    if (estado === "Falta Material Drive") payload.material_drive = "";
+    if (estado === "En Diseño" && current.estado === "En Diseño" && ownerDiseno && ownerDiseno !== user.name && !admin) {
+      setSystemMessage(`🚨 Este diseño ya fue tomado por ${ownerDiseno}. Solo esa persona o administración puede moverlo.`);
+      return;
+    }
 
-    if (["En Diseño", "Corrección", "Diseño Concluido"].includes(estado)) payload.disenado_por = user.name;
+    if (estado === "Diseño Concluido" && ownerDiseno && ownerDiseno !== user.name && !admin) {
+      setSystemMessage(`🚨 Este diseño lo debe terminar ${ownerDiseno}. Si no puede, Thalia o Luis pueden culminarlo.`);
+      return;
+    }
+
+    const payload = { estado, ...extra };
+
+    if (estado === "Falta Material Drive") {
+      payload.material_drive = "";
+      payload.notas = extra.notas || `Sin material de apoyo reportado por ${user.name}. Paloma y administración deben revisar recursos para esta publicación.`;
+    }
+
+    if (estado === "En Diseño") {
+      payload.disenado_por = ownerDiseno || user.name;
+      if (current.estado === "Falta Material Drive" && !extra.notas) payload.notas = "Material revisado. Listo para continuar diseño.";
+    }
+
+    if (estado === "Diseño Concluido") {
+      payload.disenado_por = ownerDiseno || user.name;
+      if (current.estado === "Corrección") payload.notas = "";
+    }
+
     if (estado === "Aprobado") payload.aprobado_por = user.name;
     if (estado === "Publicado") payload.publicado_por = user.name;
 
@@ -1188,15 +1221,36 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
   const cells = Array.from({ length: totalCells });
+  const monthLabel = new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(now);
+  const visibles = calendario.filter((p) => String(p.fecha || "").startsWith(`${year}-${String(month + 1).padStart(2, "0")}`));
+  const publicados = visibles.filter((p) => p.estado === "Publicado").length;
+  const urgentes = visibles.filter((p) => ["Alta", "Urgente"].includes(p.prioridad) && p.estado !== "Publicado").length;
+  const sinMaterial = visibles.filter((p) => p.estado === "Falta Material Drive").length;
 
   return (
-    <div className="card fade">
-      <div className="card-head">
-        <h3>Calendario Editorial</h3>
-        <p>Haz clic en una publicación publicada para capturar métricas; las demás se editan.</p>
+    <div className="calendar-pro fade">
+      <div className="calendar-hero">
+        <div>
+          <span>Calendario editorial</span>
+          <h3>{monthLabel}</h3>
+          <p>Vista interactiva por fecha, prioridad y estado. Las publicaciones verdes abren métricas.</p>
+        </div>
+        <div className="calendar-mini-kpis">
+          <div><strong>{visibles.length}</strong><small>Total</small></div>
+          <div><strong>{publicados}</strong><small>Publicadas</small></div>
+          <div><strong>{urgentes}</strong><small>Urgentes</small></div>
+          <div><strong>{sinMaterial}</strong><small>Sin material</small></div>
+        </div>
       </div>
 
-      <div className="calendar">
+      <div className="calendar-legend">
+        <span><i className="dot-published" /> Publicado</span>
+        <span><i className="dot-design" /> En diseño</span>
+        <span><i className="dot-review" /> Revisión</span>
+        <span><i className="dot-alert" /> Urgente / sin material</span>
+      </div>
+
+      <div className="calendar calendar-premium">
         {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((d) => <b key={d}>{d}</b>)}
 
         {cells.map((_, idx) => {
@@ -1206,19 +1260,30 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
           const items = valid ? calendario.filter((p) => dateOnly(p.fecha) === dateStr) : [];
 
           return (
-            <div className={`day ${valid ? "" : "off"}`} key={idx}>
+            <div className={`day premium-day ${valid ? "" : "off"} ${items.length ? "has-items" : ""}`} key={idx}>
               {valid ? <span className="day-num">{day}</span> : null}
-              {items.map((p) => {
-                const emp = getEmpresa(p.empresa_id);
-                const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+              <div className="day-events">
+                {items.map((p) => {
+                  const emp = getEmpresa(p.empresa_id);
+                  const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+                  const urgent = ["Alta", "Urgente"].includes(p.prioridad);
+                  const noMaterial = p.estado === "Falta Material Drive";
 
-                return (
-                  <button className={`event ${toneForState(p.estado)}`} type="button" key={p.id} onClick={() => p.estado === "Publicado" ? setModalMetricas(p) : setModalPub(p)}>
-                    <strong>{empresaNombre}</strong>
-                    <small>{p.formato}</small>
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      className={`event premium-event ${toneForState(p.estado)} ${urgent ? "urgent" : ""} ${noMaterial ? "no-material" : ""}`}
+                      type="button"
+                      key={p.id}
+                      onClick={() => p.estado === "Publicado" ? setModalMetricas(p) : setModalPub(p)}
+                      title={p.estado === "Publicado" ? "Capturar o editar métricas" : "Editar publicación"}
+                    >
+                      <span className="event-row"><strong>{empresaNombre}</strong><em>{labelEstado(p.estado)}</em></span>
+                      <small>{p.formato} · {redesText(p.redes)}</small>
+                      {urgent || noMaterial ? <span className="event-alert">{urgent ? `⚡ ${p.prioridad}` : ""}{urgent && noMaterial ? " · " : ""}{noMaterial ? "📁 Sin material" : ""}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
@@ -1237,77 +1302,138 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
     { title: "Aprobados / Publicados", states: ["Aprobado", "Publicado"] },
   ];
 
+  const abiertos = calendario.filter((p) => p.estado !== "Publicado");
+  const urgentes = abiertos.filter((p) => ["Alta", "Urgente"].includes(p.prioridad)).slice(0, 6);
+  const sinMaterial = calendario.filter((p) => p.estado === "Falta Material Drive").slice(0, 6);
+
+  const equipo = Object.values(calendario.reduce((acc, p) => {
+    const add = (name, key) => {
+      if (!name) return;
+      if (!acc[name]) acc[name] = { name, guiones: 0, disenos: 0, aprobaciones: 0, publicaciones: 0, metricas: 0 };
+      acc[name][key] += 1;
+    };
+    add(p.creado_por, "guiones");
+    add(p.disenado_por, "disenos");
+    add(p.aprobado_por, "aprobaciones");
+    add(p.publicado_por, "publicaciones");
+    add(p.metricas_capturadas_por, "metricas");
+    return acc;
+  }, {})).sort((a, b) => (b.guiones + b.disenos + b.aprobaciones + b.publicaciones + b.metricas) - (a.guiones + a.disenos + a.aprobaciones + a.publicaciones + a.metricas));
+
   return (
-    <div className="kanban fade">
-      {columns.map((col) => {
-        const items = calendario.filter((p) => col.states.includes(p.estado));
-        return (
-          <section className="kanban-col" key={col.title}>
-            <h3>{col.title} <Badge>{items.length}</Badge></h3>
-            <div className="kanban-stack">
-              {items.map((p) => {
-                const emp = getEmpresa(p.empresa_id);
-                const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
-                const materialOk = hasMaterialDrive(p);
-                const blocked = false;
-                return (
-                  <article className={`task ${p.estado === "Publicado" ? "done" : ""} ${blocked ? "blocked" : ""}`} key={p.id}>
-                    <div className="task-top"><strong>{empresaNombre}</strong><Badge tone={toneForState(p.estado)}>{labelEstado(p.estado)}</Badge></div>
-                    <p className="task-title">{p.tema || "Sin tema"}</p>
-                    <small>{p.fecha} · {p.formato} · {redesText(p.redes)}</small>
-                    <div className="task-meta">
-                      <span>🎯 {p.objetivo || "Sin objetivo"}</span>
-                      <span>🚦 Prioridad: {p.prioridad || "Media"}</span>
-                      <span className={materialOk ? "ok" : "muted"}>📁 {materialOk ? "Material de referencia cargado" : "Material opcional no cargado"}</span>
-                    </div>
-                    <div className="digital-footprint">
-                      <span>✍️ Creado por: {p.creado_por || "Sin registro"}</span>
-                      {p.disenado_por ? <span>🎨 Diseño: {p.disenado_por}</span> : null}
-                      {p.aprobado_por ? <span>✅ Aprobó: {p.aprobado_por}</span> : null}
-                      {p.publicado_por ? <span>🚀 Publicó: {p.publicado_por}</span> : null}
-                      {p.metricas_capturadas_por ? <span>📊 Métricas: {p.metricas_capturadas_por}</span> : null}
-                    </div>
-                    {p.notas ? <div className="note">Nota: {p.notas}</div> : null}
-                    {p.estado === "Falta Material Drive" ? <div className="note">Material opcional pendiente. No bloquea el flujo: cualquier staff puede tomar diseño.</div> : null}
+    <div className="production-pro fade">
+      <div className="ops-alert-grid">
+        <section className="ops-alert-card urgent">
+          <div><span>⚡ Prioridades activas</span><strong>{urgentes.length}</strong></div>
+          <p>Publicaciones con prioridad Alta o Urgente pendientes de terminar.</p>
+          {urgentes.slice(0, 3).map((p) => <button key={p.id} type="button" onClick={() => setModalPub(p)}>{getEmpresa(p.empresa_id)?.nombre || p.empresa_nombre} · {p.tema || p.formato}</button>)}
+          {!urgentes.length ? <small>Sin prioridades críticas por ahora.</small> : null}
+        </section>
 
-                    <div className="task-actions">
-                      <button type="button" onClick={() => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p)}>Ver / Editar</button>
+        <section className="ops-alert-card material">
+          <div><span>📁 Sin material</span><strong>{sinMaterial.length}</strong></div>
+          <p>Alertas internas para Paloma y administración cuando falta material.</p>
+          {sinMaterial.slice(0, 3).map((p) => <button key={p.id} type="button" onClick={() => setModalPub(p)}>{getEmpresa(p.empresa_id)?.nombre || p.empresa_nombre} · {p.tema || p.formato}</button>)}
+          {!sinMaterial.length ? <small>No hay publicaciones detenidas por material.</small> : null}
+        </section>
 
-                      {staff && p.estado === "Guion Pendiente" ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "En Diseño")}>Tomar diseño</button>
-                      ) : null}
+        <section className="ops-alert-card team">
+          <div><span>📊 Registro operativo</span><strong>{equipo.length}</strong></div>
+          <p>Conteo por guiones, diseños, aprobaciones, publicaciones y métricas.</p>
+          <div className="team-mini-table">
+            {equipo.slice(0, 4).map((r) => (
+              <div key={r.name}><b>{r.name}</b><span>G {r.guiones} · D {r.disenos} · A {r.aprobaciones} · P {r.publicaciones} · M {r.metricas}</span></div>
+            ))}
+            {!equipo.length ? <small>Sin actividad registrada.</small> : null}
+          </div>
+        </section>
+      </div>
 
-                      {staff && ["En Diseño", "Corrección"].includes(p.estado) ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "Diseño Concluido")}>Entregar diseño</button>
-                      ) : null}
+      <div className="kanban kanban-pro">
+        {columns.map((col) => {
+          const items = calendario.filter((p) => col.states.includes(p.estado));
+          return (
+            <section className="kanban-col" key={col.title}>
+              <h3>{col.title} <Badge>{items.length}</Badge></h3>
+              <div className="kanban-stack">
+                {items.map((p) => {
+                  const emp = getEmpresa(p.empresa_id);
+                  const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+                  const materialOk = hasMaterialDrive(p);
+                  const urgent = ["Alta", "Urgente"].includes(p.prioridad);
+                  const designOwner = p.disenado_por || "";
+                  const canFinishDesign = staff && (!designOwner || designOwner === user.name || admin);
+                  const noteIsCorrection = p.estado === "Corrección" && p.notas;
 
-                      {staff && p.estado === "Falta Material Drive" ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "Guion Pendiente", { notas: "Material opcional revisado / listo para continuar." })}>Regresar a guion</button>
-                      ) : null}
+                  return (
+                    <article className={`task ${p.estado === "Publicado" ? "done" : ""} ${urgent ? "urgent-task" : ""}`} key={p.id}>
+                      <div className="task-top"><strong>{empresaNombre}</strong><Badge tone={toneForState(p.estado)}>{labelEstado(p.estado)}</Badge></div>
+                      <p className="task-title">{p.tema || "Sin tema"}</p>
+                      <small>{p.fecha} · {p.formato} · {redesText(p.redes)}</small>
 
-                      {admin && p.estado === "Diseño Concluido" ? (
-                        <>
-                          <button type="button" onClick={() => updatePubState(p.id, "Aprobado")}>Aprobar</button>
-                          <button type="button" onClick={() => setModalRechazo(p.id)}>Rechazar</button>
-                        </>
-                      ) : null}
+                      <div className="task-meta pro-meta">
+                        <span>🎯 {p.objetivo || "Sin objetivo"}</span>
+                        <span className={urgent ? "hot" : ""}>🚦 Prioridad: {p.prioridad || "Media"}</span>
+                        <span className={materialOk ? "ok" : "muted"}>📁 {materialOk ? "Material de referencia cargado" : "Material opcional no cargado"}</span>
+                      </div>
 
-                      {admin && p.estado === "Aprobado" ? (
-                        <button type="button" onClick={() => updatePubState(p.id, "Publicado")}>Marcar publicado</button>
-                      ) : null}
+                      <div className="digital-footprint">
+                        <span>✍️ Guion: {p.creado_por || "Sin registro"}</span>
+                        {designOwner ? <span>🎨 Diseño tomado por: {designOwner}</span> : null}
+                        {p.aprobado_por ? <span>✅ Aprobó: {p.aprobado_por}</span> : null}
+                        {p.publicado_por ? <span>🚀 Publicó: {p.publicado_por}</span> : null}
+                        {p.metricas_capturadas_por ? <span>📊 Métricas: {p.metricas_capturadas_por}</span> : null}
+                      </div>
 
-                      {staff && p.estado === "Publicado" ? (
-                        <button type="button" onClick={() => setModalMetricas(p)}>{p.metricas ? "Editar métricas" : "Capturar métricas"}</button>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-              {items.length === 0 ? <div className="empty">Sin elementos.</div> : null}
-            </div>
-          </section>
-        );
-      })}
+                      {noteIsCorrection ? <div className="note correction-note">Corrección activa: {p.notas}</div> : null}
+                      {p.estado !== "Corrección" && p.notas ? <div className="note">Nota: {p.notas}</div> : null}
+                      {p.estado === "Falta Material Drive" ? <div className="note material-note">Sin material reportado. Esta alerta es visible para Paloma y administración hasta que alguien lo revise.</div> : null}
+
+                      <div className="task-actions">
+                        <button type="button" onClick={() => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p)}>Ver / Editar</button>
+
+                        {staff && p.estado === "Guion Pendiente" ? (
+                          <button type="button" onClick={() => updatePubState(p.id, "En Diseño")}>Tomar diseño</button>
+                        ) : null}
+
+                        {staff && p.estado === "Guion Pendiente" ? (
+                          <button type="button" onClick={() => updatePubState(p.id, "Falta Material Drive")}>No hay material</button>
+                        ) : null}
+
+                        {staff && p.estado === "Falta Material Drive" ? (
+                          <button type="button" onClick={() => updatePubState(p.id, "En Diseño", { notas: "Material revisado. Listo para continuar diseño." })}>Material recibido</button>
+                        ) : null}
+
+                        {staff && ["En Diseño", "Corrección"].includes(p.estado) ? (
+                          canFinishDesign
+                            ? <button type="button" onClick={() => updatePubState(p.id, "Diseño Concluido")}>Terminar diseño</button>
+                            : <button type="button" disabled title={`Lo debe terminar ${designOwner}`}>Lo termina {designOwner}</button>
+                        ) : null}
+
+                        {admin && p.estado === "Diseño Concluido" ? (
+                          <>
+                            <button type="button" onClick={() => updatePubState(p.id, "Aprobado")}>Aprobar</button>
+                            <button type="button" onClick={() => setModalRechazo(p.id)}>Enviar corrección</button>
+                          </>
+                        ) : null}
+
+                        {admin && p.estado === "Aprobado" ? (
+                          <button type="button" onClick={() => updatePubState(p.id, "Publicado")}>Marcar publicado</button>
+                        ) : null}
+
+                        {staff && p.estado === "Publicado" ? (
+                          <button type="button" onClick={() => setModalMetricas(p)}>{p.metricas ? "Editar métricas" : "Capturar métricas"}</button>
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })}
+                {items.length === 0 ? <div className="empty">Sin elementos.</div> : null}
+              </div>
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -2199,7 +2325,11 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
             <Field label="Formato"><select value={form.formato || "Reel"} onChange={(e) => setForm({ ...form, formato: e.target.value })}><option>Reel</option><option>Post</option><option>Carrusel</option><option>Historia</option><option>Video</option><option>Live</option></select></Field>
             <Field label="Prioridad"><select value={form.prioridad || "Media"} onChange={(e) => setForm({ ...form, prioridad: e.target.value })}><option>Baja</option><option>Media</option><option>Alta</option><option>Urgente</option></select></Field>
             {admin ? <Field label="Estado"><select value={form.estado || "Guion Pendiente"} onChange={(e) => setForm({ ...form, estado: e.target.value })}><option>Guion Pendiente</option><option>En Diseño</option><option value="Falta Material Drive">Material opcional pendiente</option><option>Corrección</option><option>Diseño Concluido</option><option>Aprobado</option><option>Publicado</option></select></Field> : <Field label="Estado"><input value={form.estado || "Guion Pendiente"} readOnly /></Field>}
-            <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
+            <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value, material_missing: false })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
+            <label className="material-toggle">
+              <input type="checkbox" checked={Boolean(form.material_missing || form.estado === "Falta Material Drive")} onChange={(e) => setForm({ ...form, material_missing: e.target.checked, material_drive: e.target.checked ? "" : form.material_drive, estado: e.target.checked ? "Falta Material Drive" : (form.estado === "Falta Material Drive" ? "Guion Pendiente" : form.estado) })} />
+              <span>📁 No hay material disponible para esta publicación</span>
+            </label>
           </div>
 
           <div className="span-2"><Field label="Tema / Título"><input value={form.tema || ""} onChange={(e) => setForm({ ...form, tema: e.target.value })} placeholder="Ej. Lanzamiento de nuevo servicio, campaña del mes, promoción..." /></Field></div>
@@ -3630,5 +3760,56 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
     print-color-adjust: exact;
   }
 }
+
+
+/* AZP OPERACION PROFESIONAL V5 */
+.production-pro { display: grid; gap: 22px; }
+.ops-alert-grid { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 18px; }
+.ops-alert-card { border-radius: 28px; padding: 22px; background: linear-gradient(135deg,#ffffff,#f8fafc); border: 1px solid rgba(148,163,184,.28); box-shadow: 0 24px 60px rgba(15,23,42,.09); }
+.ops-alert-card div:first-child { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.ops-alert-card span { color:#64748b; font-size:12px; font-weight:950; letter-spacing:.08em; text-transform:uppercase; }
+.ops-alert-card strong { font-size:38px; line-height:1; color:#0f172a; letter-spacing:-.05em; }
+.ops-alert-card p { color:#64748b; font-weight:750; line-height:1.45; margin:12px 0; }
+.ops-alert-card button { width:100%; text-align:left; border:0; border-radius:16px; padding:12px 14px; margin-top:8px; background:#f1f5f9; color:#334155; font-weight:900; cursor:pointer; }
+.ops-alert-card button:hover { background:var(--c-primary); color:#fff; }
+.ops-alert-card.urgent { background:linear-gradient(135deg,#fff7ed,#ffffff); }
+.ops-alert-card.material { background:linear-gradient(135deg,#eff6ff,#ffffff); }
+.ops-alert-card.team { background:linear-gradient(135deg,#f5f3ff,#ffffff); }
+.team-mini-table { display:grid; gap:8px; margin-top:10px; }
+.team-mini-table div { display:flex; justify-content:space-between; gap:14px; padding:10px 12px; background:rgba(255,255,255,.75); border:1px solid rgba(148,163,184,.22); border-radius:14px; }
+.team-mini-table b { color:#0f172a; }
+.team-mini-table span { color:#64748b; font-size:12px; letter-spacing:0; text-transform:none; }
+.urgent-task { border-left-color:#f59e0b !important; background:linear-gradient(180deg,#ffffff,#fffbeb) !important; }
+.pro-meta .hot { color:#b45309 !important; font-weight:950 !important; }
+.correction-note { border-color:#fed7aa !important; background:#fff7ed !important; color:#9a3412 !important; }
+.material-note { border-color:#bfdbfe !important; background:#eff6ff !important; color:#1d4ed8 !important; }
+.task-actions button:disabled { cursor:not-allowed !important; opacity:.68 !important; background:#e2e8f0 !important; color:#64748b !important; }
+.material-toggle { display:flex; align-items:center; gap:10px; margin-top:-2px; padding:13px 14px; border-radius:16px; background:#eff6ff; border:1px solid rgba(59,130,246,.20); color:#1d4ed8; font-weight:900; cursor:pointer; }
+.material-toggle input { width:18px; height:18px; }
+.calendar-pro { display:grid; gap:18px; }
+.calendar-hero { display:flex; justify-content:space-between; gap:22px; align-items:center; padding:28px; border-radius:30px; color:#fff; background:radial-gradient(circle at 15% 20%, rgba(255,255,255,.20), transparent 26%), linear-gradient(135deg,#0f172a,#4c1d95 48%, var(--c-primary)); box-shadow:0 28px 80px rgba(15,23,42,.18); }
+.calendar-hero span { color:rgba(255,255,255,.68); font-size:12px; font-weight:950; letter-spacing:.16em; text-transform:uppercase; }
+.calendar-hero h3 { margin:8px 0 4px; font-size:34px; letter-spacing:-.04em; text-transform:capitalize; }
+.calendar-hero p { margin:0; color:rgba(255,255,255,.76); }
+.calendar-mini-kpis { display:grid; grid-template-columns:repeat(4, minmax(82px,1fr)); gap:10px; min-width:420px; }
+.calendar-mini-kpis div { padding:16px; border-radius:22px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18); backdrop-filter:blur(12px); }
+.calendar-mini-kpis strong { display:block; color:#fff; font-size:28px; }
+.calendar-mini-kpis small { color:rgba(255,255,255,.76); font-weight:800; }
+.calendar-legend { display:flex; flex-wrap:wrap; gap:10px; padding:0 4px; }
+.calendar-legend span { display:flex; align-items:center; gap:8px; padding:10px 13px; border-radius:999px; background:#fff; border:1px solid rgba(148,163,184,.24); color:#64748b; font-weight:850; box-shadow:0 10px 24px rgba(15,23,42,.05); }
+.calendar-legend i { width:10px; height:10px; border-radius:99px; display:inline-block; }
+.dot-published { background:#22c55e; } .dot-design { background:#3b82f6; } .dot-review { background:#a855f7; } .dot-alert { background:#f59e0b; }
+.calendar-premium { border-radius:30px !important; overflow:hidden; }
+.premium-day { min-height:168px !important; position:relative; }
+.day-events { display:grid; gap:8px; margin-top:26px; }
+.premium-event { width:100%; text-align:left; border:0; }
+.premium-event .event-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.premium-event em { font-style:normal; font-size:10px; padding:4px 7px; border-radius:999px; background:rgba(255,255,255,.70); color:#334155; font-weight:950; }
+.premium-event small { display:block; margin-top:5px; opacity:.86; }
+.event-alert { display:block; margin-top:7px; padding:5px 7px; border-radius:10px; background:rgba(245,158,11,.16); color:#92400e; font-weight:950; font-size:11px; }
+.premium-event.no-material { outline:2px solid rgba(59,130,246,.28); }
+.premium-event.urgent { outline:2px solid rgba(245,158,11,.30); }
+@media (max-width: 1100px) { .ops-alert-grid { grid-template-columns:1fr; } .calendar-hero { flex-direction:column; align-items:flex-start; } .calendar-mini-kpis { min-width:0; width:100%; grid-template-columns:repeat(2,1fr); } }
+@media (max-width: 760px) { .calendar-mini-kpis { grid-template-columns:1fr; } .calendar-hero { padding:22px; } .calendar-hero h3 { font-size:26px; } }
 
 `;
