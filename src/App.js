@@ -1427,6 +1427,7 @@ function FinanzasView({ finanzas, empresas, setModalFin, agencia, getEmpresa }) 
   );
 }
 
+
 function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
   const clientes = empresas.filter((e) => e.tipo !== "Prospecto");
   const [reportEmp, setReportEmp] = useState("__all");
@@ -1442,23 +1443,63 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
 
   const reportAll = reportEmp === "__all";
   const emp = reportAll ? null : getEmpresa(reportEmp);
-  const items = calendario.filter((p) => {
+
+  const itemsPeriodo = calendario.filter((p) => {
     const fecha = dateOnly(p.fecha);
     const inRange = fecha >= startDate && fecha <= endDate;
     const matchEmpresa = reportAll || sameId(p.empresa_id, reportEmp);
     return inRange && matchEmpresa;
   });
-  const publicados = items.filter((p) => p.estado === "Publicado");
-  const pendientes = items.filter((p) => p.estado !== "Publicado");
-  const cumplimiento = items.length ? Math.round((publicados.length / items.length) * 100) : 0;
+
+  // REPORTE PARA CLIENTE: solo muestra piezas publicadas y métricas.
+  // No muestra estados internos, responsables, guiones, diseño, aprobación ni pendientes.
+  const publicados = itemsPeriodo.filter((p) => p.estado === "Publicado");
+  const conMetricas = publicados.filter((p) => p.metricas && Object.keys(p.metricas || {}).length > 0);
+  const ocultosInternos = itemsPeriodo.length - publicados.length;
+
+  const metricFromPub = (pub) => {
+    const metricas = pub.metricas || {};
+    const redes = Array.isArray(pub.redes) && pub.redes.length ? pub.redes : Object.keys(metricas);
+    return redes.reduce((acc, key) => {
+      const item = metricas[key] || {};
+      acc.alcance += Number(item.alcance || 0);
+      acc.interacciones += Number(item.interacciones || 0);
+      acc.comentarios += Number(item.comentarios || 0);
+      acc.guardados += Number(item.guardados || 0);
+      acc.compartidos += Number(item.compartidos || 0);
+      if (item.enlace) acc.enlaces.push(item.enlace);
+      return acc;
+    }, { alcance: 0, interacciones: 0, comentarios: 0, guardados: 0, compartidos: 0, enlaces: [] });
+  };
+
   const metricTotals = publicados.reduce((acc, p) => {
-    const t = totalMetricas(p.metricas);
+    const t = metricFromPub(p);
     acc.alcance += t.alcance;
     acc.interacciones += t.interacciones;
     acc.comentarios += t.comentarios;
+    acc.guardados += t.guardados;
+    acc.compartidos += t.compartidos;
     return acc;
-  }, { alcance: 0, interacciones: 0, comentarios: 0 });
+  }, { alcance: 0, interacciones: 0, comentarios: 0, guardados: 0, compartidos: 0 });
 
+  const totalAcciones = metricTotals.interacciones + metricTotals.comentarios + metricTotals.guardados + metricTotals.compartidos;
+  const engagement = metricTotals.alcance ? ((totalAcciones / metricTotals.alcance) * 100).toFixed(1) : "0.0";
+
+  const redResumen = SOCIAL_OPTIONS.map((opt) => {
+    const redPubs = publicados.filter((p) => Array.isArray(p.redes) && p.redes.includes(opt.key));
+    const totals = redPubs.reduce((acc, p) => {
+      const item = p.metricas?.[opt.key] || {};
+      acc.alcance += Number(item.alcance || 0);
+      acc.interacciones += Number(item.interacciones || 0);
+      acc.comentarios += Number(item.comentarios || 0);
+      acc.guardados += Number(item.guardados || 0);
+      acc.compartidos += Number(item.compartidos || 0);
+      return acc;
+    }, { alcance: 0, interacciones: 0, comentarios: 0, guardados: 0, compartidos: 0 });
+    return { ...opt, publicaciones: redPubs.length, ...totals };
+  }).filter((r) => r.publicaciones || r.alcance || r.interacciones || r.comentarios || r.guardados || r.compartidos);
+
+  const emailDestino = emp ? (emp.email_cobranza || emp.email_facturacion || emp.email || emp.correo || "") : "";
 
   const sendReportToClient = async () => {
     setReportMsg("");
@@ -1468,18 +1509,16 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
       return;
     }
 
-    const emailDestino = emp.email_cobranza || emp.email_facturacion || emp.email || emp.correo || "";
-
     if (!isValidEmail(emailDestino)) {
       setReportMsg("La empresa no tiene un correo válido registrado en CRM.");
       return;
     }
 
-    const reportNode = document.querySelector(".report-sheet");
+    const reportNode = document.querySelector(".client-report-sheet");
     const html = reportNode?.outerHTML || "";
 
     if (!html) {
-      setReportMsg("No se pudo preparar el reporte.");
+      setReportMsg("No se pudo preparar el reporte limpio del cliente.");
       return;
     }
 
@@ -1514,7 +1553,7 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
         throw new Error(body.error || "No se pudo enviar el reporte.");
       }
 
-      setReportMsg(`✓ Reporte enviado a ${emailDestino}`);
+      setReportMsg(`✓ Reporte limpio enviado a ${emailDestino}`);
     } catch (error) {
       setReportMsg(`🚨 ${error.message}`);
     } finally {
@@ -1522,74 +1561,132 @@ function ReportesView({ empresas, calendario, getEmpresa, agencia }) {
     }
   };
 
-
   if (!clientes.length) return <div className="card empty">Aún no hay clientes para generar reportes.</div>;
 
   return (
-    <div className="fade">
-      <div className="card report-controls">
-        <select value={reportEmp} onChange={(e) => setReportEmp(e.target.value)}><option value="__all">Todas las empresas</option>{clientes.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}</select>
+    <div className="fade client-report-page">
+      <div className="card report-controls client-report-controls">
+        <select value={reportEmp} onChange={(e) => setReportEmp(e.target.value)}>
+          <option value="__all">Vista general interna</option>
+          {clientes.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+        </select>
         <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
         <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-        <button className="btn primary" type="button" onClick={() => window.print()}>Guardar PDF</button>
+        <button className="btn primary" type="button" onClick={() => window.print()}>Guardar PDF limpio</button>
         <button className="btn secondary" type="button" disabled={reportAll || sendingReport} onClick={sendReportToClient}>{sendingReport ? "Enviando..." : "Enviar al cliente"}</button>
+        <div className="client-report-admin-note">
+          {reportAll ? "Selecciona una empresa para enviar por correo." : `Destino: ${emailDestino || "sin correo registrado"}`}
+          {ocultosInternos > 0 ? ` · ${ocultosInternos} pieza(s) internas no se muestran al cliente.` : " · Reporte listo para cliente."}
+        </div>
         {reportMsg ? <div className="report-msg">{reportMsg}</div> : null}
       </div>
 
-      <div className="report-sheet premium-report">
-        <div className="report-hero">
-          <div className="report-brand">
-            <LogoAvatar logo={agencia.logo} name={agencia.nombre} size={68} />
-            <div><strong>{agencia.nombre}</strong><span>Reporte Ejecutivo de Marketing</span></div>
+      <div className="client-report-sheet">
+        <div className="client-report-hero">
+          <div className="client-report-brand">
+            <LogoAvatar logo={agencia.logo} name={agencia.nombre} size={74} />
+            <div>
+              <strong>{agencia.nombre}</strong>
+              <span>Reporte ejecutivo de resultados digitales</span>
+            </div>
           </div>
-          <div className="report-title-box">
-            <span>REPORTE DE RESULTADOS</span>
-            <h1>{reportAll ? "Todas las empresas" : emp?.nombre}</h1>
+          <div className="client-report-title">
+            <span>REPORTE PARA CLIENTE</span>
+            <h1>{reportAll ? "Vista general" : emp?.nombre}</h1>
             <p>{startDate} al {endDate}</p>
           </div>
         </div>
 
-        <div className="report-executive-grid">
-          <div><span>Publicaciones programadas</span><strong>{items.length}</strong></div>
-          <div><span>Publicadas</span><strong>{publicados.length}</strong></div>
-          <div><span>Cumplimiento</span><strong>{cumplimiento}%</strong></div>
-          <div><span>Alcance total</span><strong>{metricTotals.alcance.toLocaleString("es-MX")}</strong></div>
+        <div className="client-summary-card">
+          <span>Resumen ejecutivo</span>
+          <p>
+            Durante este periodo se reportan <strong>{publicados.length}</strong> publicación(es) publicadas
+            {conMetricas.length !== publicados.length ? `, de las cuales ${conMetricas.length} cuentan con métricas capturadas` : " con métricas capturadas"}.
+            El reporte muestra únicamente resultados visibles para el cliente: alcance, interacciones, comentarios, guardados y compartidos.
+          </p>
         </div>
 
-        <div className="report-section-title">Resumen por estado</div>
-        <div className="status-summary">
-          {['Guion Pendiente','Falta Material Drive','En Diseño','Corrección','Diseño Concluido','Aprobado','Publicado'].map((estado) => {
-            const count = items.filter((p) => p.estado === estado).length;
-            return <div key={estado}><Badge tone={toneForState(estado)}>{labelEstado(estado)}</Badge><strong>{count}</strong></div>;
+        <div className="client-kpi-grid">
+          <div><span>Publicaciones publicadas</span><strong>{publicados.length}</strong><small>piezas visibles</small></div>
+          <div><span>Alcance total</span><strong>{metricTotals.alcance.toLocaleString("es-MX")}</strong><small>personas / vistas</small></div>
+          <div><span>Interacciones</span><strong>{totalAcciones.toLocaleString("es-MX")}</strong><small>acciones totales</small></div>
+          <div><span>Engagement estimado</span><strong>{engagement}%</strong><small>acciones / alcance</small></div>
+        </div>
+
+        <div className="client-section-head">
+          <h3>Resultados por red social</h3>
+          <p>Desglose de rendimiento por canal publicado.</p>
+        </div>
+
+        <div className="network-results-grid">
+          {redResumen.map((red) => {
+            const acciones = red.interacciones + red.comentarios + red.guardados + red.compartidos;
+            return (
+              <div className="network-result-card" key={red.key}>
+                <div className="network-result-top"><span>{red.icon}</span><strong>{red.label}</strong></div>
+                <div className="network-result-data">
+                  <div><small>Piezas</small><b>{red.publicaciones}</b></div>
+                  <div><small>Alcance</small><b>{red.alcance.toLocaleString("es-MX")}</b></div>
+                  <div><small>Acciones</small><b>{acciones.toLocaleString("es-MX")}</b></div>
+                </div>
+              </div>
+            );
           })}
+          {!redResumen.length ? <div className="empty-client-report">No hay métricas por red social capturadas en este periodo.</div> : null}
         </div>
 
-        <div className="report-section-title">Publicaciones y desempeño</div>
-        <table className="report-table-pro">
-          <thead><tr><th>Fecha</th><th>Publicación</th><th>Redes</th><th>Estado</th><th>Equipo</th><th>Métricas</th></tr></thead>
+        <div className="client-section-head">
+          <h3>Detalle de publicaciones</h3>
+          <p>Contenido publicado y resultados principales. No se incluyen procesos internos de producción.</p>
+        </div>
+
+        <table className="client-report-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Contenido</th>
+              <th>Redes</th>
+              <th>Alcance</th>
+              <th>Acciones</th>
+              <th>Comentarios</th>
+            </tr>
+          </thead>
           <tbody>
-            {items.map((p) => {
-              const t = totalMetricas(p.metricas);
+            {publicados.map((p) => {
+              const t = metricFromPub(p);
+              const acciones = t.interacciones + t.guardados + t.compartidos;
               return (
                 <tr key={p.id}>
                   <td>{p.fecha}</td>
-                  <td><strong>{p.formato}</strong><span>{p.tema || "Sin tema"}</span><span>{getEmpresa(p.empresa_id)?.nombre || p.empresa_nombre || "Sin empresa asignada"}</span></td>
+                  <td>
+                    <strong>{p.tema || p.formato || "Publicación"}</strong>
+                    <span>{p.formato || "Contenido digital"}</span>
+                  </td>
                   <td>{redesText(p.redes)}</td>
-                  <td><Badge tone={toneForState(p.estado)}>{labelEstado(p.estado)}</Badge></td>
-                  <td><span>Guion: {p.creado_por || "-"}</span><span>Diseño: {p.disenado_por || "-"}</span><span>Aprobó: {p.aprobado_por || "-"}</span></td>
-                  <td><strong>{t.alcance.toLocaleString("es-MX")}</strong><span>{t.interacciones} interacciones · {t.comentarios} comentarios</span></td>
+                  <td><strong>{t.alcance.toLocaleString("es-MX")}</strong></td>
+                  <td>{acciones.toLocaleString("es-MX")}</td>
+                  <td>{t.comentarios.toLocaleString("es-MX")}</td>
                 </tr>
               );
             })}
-            {!items.length ? <tr><td colSpan="6" className="empty-cell">No hay publicaciones en este periodo.</td></tr> : null}
+            {!publicados.length ? (
+              <tr><td colSpan="6" className="empty-cell">No hay publicaciones publicadas para mostrar al cliente en este periodo.</td></tr>
+            ) : null}
           </tbody>
         </table>
 
-        {pendientes.length > 0 ? <p className="report-warning">Hay {pendientes.length} publicación(es) del periodo que todavía no están publicadas. Revisar calendario y flujo de producción.</p> : null}
+        <div className="client-report-closing">
+          <div>
+            <strong>Preparado por {agencia.nombre}</strong>
+            <span>Reporte limpio para cliente · No contiene flujo interno, responsables, pendientes ni aprobaciones.</span>
+          </div>
+          <p>Los resultados dependen de las métricas capturadas manualmente en cada red social.</p>
+        </div>
       </div>
     </div>
   );
 }
+
 
 function AuditoriaView({ accessLogs }) {
   return (
@@ -3145,4 +3242,393 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   .app-shell, .main, .content { display: block; height: auto; overflow: visible; padding: 0; }
   .report-sheet { border: 0; box-shadow: none; }
 }
+
+/* AZP CLIENT REPORT V4 - reporte limpio para cliente y UI más premium */
+.client-report-page {
+  animation: fadeUp .22s ease both;
+}
+
+.client-report-controls {
+  display: grid !important;
+  grid-template-columns: minmax(240px, 1.1fr) 180px 180px 180px 190px !important;
+  gap: 14px !important;
+  align-items: stretch !important;
+  border-radius: 24px !important;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%) !important;
+  box-shadow: 0 22px 70px rgba(15,23,42,.08) !important;
+}
+
+.client-report-controls .btn {
+  min-height: 58px !important;
+  border-radius: 18px !important;
+  font-weight: 950 !important;
+  white-space: normal !important;
+  line-height: 1.18 !important;
+}
+
+.client-report-admin-note {
+  grid-column: 1 / -1;
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 850;
+  border: 1px solid rgba(148,163,184,.25);
+}
+
+.client-report-sheet {
+  margin-top: 22px;
+  background: #fff;
+  border-radius: 34px;
+  overflow: hidden;
+  border: 1px solid rgba(148,163,184,.24);
+  box-shadow: 0 36px 100px rgba(15,23,42,.13);
+}
+
+.client-report-hero {
+  min-height: 210px;
+  padding: 42px 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 28px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(255,255,255,.18), transparent 28%),
+    linear-gradient(135deg, #0f172a 0%, #37126f 46%, var(--c-primary) 100%);
+}
+
+.client-report-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.client-report-brand strong {
+  display: block;
+  font-size: 24px;
+  letter-spacing: -.03em;
+}
+
+.client-report-brand span {
+  display: block;
+  color: rgba(255,255,255,.76);
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.client-report-title {
+  text-align: right;
+}
+
+.client-report-title span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 12px;
+  letter-spacing: .20em;
+  font-weight: 950;
+}
+
+.client-report-title h1 {
+  margin: 10px 0 6px;
+  font-size: 32px;
+  line-height: 1.05;
+  letter-spacing: -.04em;
+}
+
+.client-report-title p {
+  margin: 0;
+  color: rgba(255,255,255,.82);
+  font-weight: 700;
+}
+
+.client-summary-card {
+  margin: 30px 34px 0;
+  padding: 22px 24px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #f8fafc, #eef2ff);
+  border: 1px solid rgba(148,163,184,.25);
+}
+
+.client-summary-card span {
+  display: block;
+  font-size: 12px;
+  color: var(--c-primary);
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.client-summary-card p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.65;
+  font-size: 15px;
+}
+
+.client-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 18px;
+  padding: 28px 34px 8px;
+}
+
+.client-kpi-grid div {
+  border: 1px solid rgba(148,163,184,.28);
+  border-radius: 24px;
+  padding: 22px;
+  background: #fff;
+  box-shadow: 0 16px 38px rgba(15,23,42,.06);
+}
+
+.client-kpi-grid span {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.client-kpi-grid strong {
+  display: block;
+  margin-top: 12px;
+  color: #0f172a;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.client-kpi-grid small {
+  display: block;
+  margin-top: 9px;
+  color: #94a3b8;
+  font-weight: 750;
+}
+
+.client-section-head {
+  padding: 28px 34px 12px;
+}
+
+.client-section-head h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #0f172a;
+  letter-spacing: -.03em;
+}
+
+.client-section-head p {
+  margin: 6px 0 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.network-results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 0 34px 12px;
+}
+
+.network-result-card {
+  border-radius: 24px;
+  border: 1px solid rgba(148,163,184,.26);
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  padding: 20px;
+  box-shadow: 0 14px 34px rgba(15,23,42,.06);
+}
+
+.network-result-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  color: #0f172a;
+}
+
+.network-result-top span {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: #eef2ff;
+}
+
+.network-result-data {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.network-result-data small {
+  display: block;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.network-result-data b {
+  display: block;
+  margin-top: 5px;
+  color: #0f172a;
+  font-size: 17px;
+}
+
+.empty-client-report {
+  grid-column: 1 / -1;
+  padding: 24px;
+  border-radius: 22px;
+  background: #f8fafc;
+  color: #64748b;
+  font-weight: 850;
+  text-align: center;
+}
+
+.client-report-table {
+  width: calc(100% - 68px);
+  margin: 0 34px 24px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border-radius: 24px;
+  border: 1px solid rgba(148,163,184,.24);
+}
+
+.client-report-table th {
+  padding: 16px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 950;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  text-align: left;
+}
+
+.client-report-table td {
+  padding: 18px 16px;
+  border-top: 1px solid rgba(226,232,240,.9);
+  color: #334155;
+  vertical-align: top;
+}
+
+.client-report-table td strong {
+  display: block;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.client-report-table td span {
+  display: block;
+  color: #64748b;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.client-report-closing {
+  margin: 8px 34px 34px;
+  padding: 22px 24px;
+  border-radius: 24px;
+  background: #0f172a;
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+  gap: 22px;
+  align-items: center;
+}
+
+.client-report-closing strong {
+  display: block;
+  font-size: 16px;
+}
+
+.client-report-closing span,
+.client-report-closing p {
+  color: rgba(255,255,255,.72);
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .client-report-controls,
+  .client-kpi-grid,
+  .network-results-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+
+  .client-report-hero,
+  .client-report-closing {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .client-report-title {
+    text-align: left;
+  }
+}
+
+@media (max-width: 760px) {
+  .client-report-controls,
+  .client-kpi-grid,
+  .network-results-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .client-report-hero {
+    padding: 30px 24px;
+  }
+
+  .client-summary-card,
+  .client-section-head,
+  .client-report-closing {
+    margin-left: 20px;
+    margin-right: 20px;
+  }
+
+  .client-kpi-grid,
+  .network-results-grid {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+
+  .client-report-table {
+    width: calc(100% - 40px);
+    margin-left: 20px;
+    margin-right: 20px;
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+@media print {
+  .client-report-controls,
+  .sidebar,
+  .topbar {
+    display: none !important;
+  }
+
+  .main,
+  .content {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .client-report-sheet {
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .client-report-hero {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
 `;
