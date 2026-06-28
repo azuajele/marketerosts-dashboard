@@ -665,7 +665,7 @@ ${error.message}`);
 
   const savePub = async (data) => {
     if (!data.empresa_id) {
-      setSystemMessage("🚨 Primero registra una empresa para poder crear una publicación.");
+      setSystemMessage("Primero registra una empresa para poder crear una publicación.");
       return;
     }
 
@@ -679,7 +679,7 @@ ${error.message}`);
     const redes = Array.isArray(data.redes) ? data.redes : [];
 
     if (redes.length === 0) {
-      setSystemMessage("🚨 Selecciona al menos una red social para esta publicación.");
+      setSystemMessage("Selecciona al menos una red social para esta publicación.");
       return;
     }
 
@@ -714,7 +714,7 @@ ${error.message}`);
       : await supabase.from("calendario").insert([payload]).select().single();
 
     if (response.error) {
-      setSystemMessage(`🚨 ERROR AL GUARDAR PUBLICACIÓN:
+      setSystemMessage(`ERROR AL GUARDAR PUBLICACIÓN:
 
 ${response.error.message}`);
     } else {
@@ -763,7 +763,7 @@ ${response.error.message}`);
 
     const current = calendario.find((p) => sameId(p.id, id));
     if (!current) {
-      setSystemMessage("🚨 No encontré esta publicación en el calendario.");
+      setSystemMessage("No encontré esta publicación en el calendario.");
       return;
     }
 
@@ -772,12 +772,12 @@ ${response.error.message}`);
     const ownerDiseno = current.disenado_por || "";
 
     if (requiereAdmin && !admin) {
-      setSystemMessage("🚨 Solo Thalia o Luis pueden aprobar, rechazar o marcar una publicación como publicada.");
+      setSystemMessage("Solo Thalia o Luis pueden aprobar, rechazar o marcar una publicación como publicada.");
       return;
     }
 
     if (requiereDiseno && !staff) {
-      setSystemMessage("🚨 Solo el staff autorizado puede mover una publicación en producción/diseño.");
+      setSystemMessage("Solo el staff autorizado puede mover una publicación en producción/diseño.");
       return;
     }
 
@@ -806,6 +806,11 @@ ${response.error.message}`);
     if (estado === "Diseño Concluido") {
       payload.disenado_por = ownerDiseno || user.name;
       if (current.estado === "Corrección") payload.notas = "";
+    }
+
+    // AZP_V6_CLEAR_CORRECTION_NOTE
+    if (["Diseño Concluido", "Aprobado", "Publicado"].includes(estado) && /error|errores|correcci/i.test(String(current.notas || ""))) {
+      payload.notas = "";
     }
 
     if (estado === "Aprobado") payload.aprobado_por = user.name;
@@ -975,7 +980,7 @@ ${error.message}`);
 
       {modalCRM !== null ? <ModalCRM initial={modalCRM} onSave={saveEmpresa} onClose={() => setModalCRM(null)} /> : null}
       {modalPub !== null ? <ModalPub initial={modalPub} empresas={empresas} onSave={savePub} onClose={() => setModalPub(null)} user={user} /> : null}
-      {modalFin !== null ? <ModalFinanza initial={modalFin} empresas={empresas} onSave={saveFinanza} onClose={() => setModalFin(null)} /> : null}
+      {modalFin !== null ? <ModalFinanza initial={modalFin} empresas={empresas} finanzas={finanzas} onSave={saveFinanza} onClose={() => setModalFin(null)} /> : null}
       {modalMetricas ? (
         <ModalMetricas
           pub={modalMetricas}
@@ -1279,7 +1284,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
                     >
                       <span className="event-row"><strong>{empresaNombre}</strong><em>{labelEstado(p.estado)}</em></span>
                       <small>{p.formato} · {redesText(p.redes)}</small>
-                      {urgent || noMaterial ? <span className="event-alert">{urgent ? `⚡ ${p.prioridad}` : ""}{urgent && noMaterial ? " · " : ""}{noMaterial ? "📁 Sin material" : ""}</span> : null}
+                      {urgent || noMaterial ? <span className="event-alert">{urgent ? `⚡ ${p.prioridad}` : ""}{urgent && noMaterial ? " · " : ""}{noMaterial ? "Material pendiente" : ""}</span> : null}
                     </button>
                   );
                 })}
@@ -1324,25 +1329,25 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
     <div className="production-pro fade">
       <div className="ops-alert-grid">
         <section className="ops-alert-card urgent">
-          <div><span>⚡ Prioridades activas</span><strong>{urgentes.length}</strong></div>
-          <p>Publicaciones con prioridad Alta o Urgente pendientes de terminar.</p>
+          <div><span>Prioridad alta / urgente</span><strong>{urgentes.length}</strong></div>
+          <p>Publicaciones de mayor prioridad que requieren atención del equipo.</p>
           {urgentes.slice(0, 3).map((p) => <button key={p.id} type="button" onClick={() => setModalPub(p)}>{getEmpresa(p.empresa_id)?.nombre || p.empresa_nombre} · {p.tema || p.formato}</button>)}
           {!urgentes.length ? <small>Sin prioridades críticas por ahora.</small> : null}
         </section>
 
         <section className="ops-alert-card material">
-          <div><span>📁 Sin material</span><strong>{sinMaterial.length}</strong></div>
-          <p>Alertas internas para Paloma y administración cuando falta material.</p>
+          <div><span>Material pendiente</span><strong>{sinMaterial.length}</strong></div>
+          <p>Publicaciones que requieren material antes de avanzar correctamente.</p>
           {sinMaterial.slice(0, 3).map((p) => <button key={p.id} type="button" onClick={() => setModalPub(p)}>{getEmpresa(p.empresa_id)?.nombre || p.empresa_nombre} · {p.tema || p.formato}</button>)}
           {!sinMaterial.length ? <small>No hay publicaciones detenidas por material.</small> : null}
         </section>
 
         <section className="ops-alert-card team">
-          <div><span>📊 Registro operativo</span><strong>{equipo.length}</strong></div>
-          <p>Conteo por guiones, diseños, aprobaciones, publicaciones y métricas.</p>
+          <div><span>Desempeño del equipo</span><strong>{equipo.length}</strong></div>
+          <p>Actividad acumulada por colaborador.</p>
           <div className="team-mini-table">
             {equipo.slice(0, 4).map((r) => (
-              <div key={r.name}><b>{r.name}</b><span>G {r.guiones} · D {r.disenos} · A {r.aprobaciones} · P {r.publicaciones} · M {r.metricas}</span></div>
+              <div key={r.name}><b>{r.name}</b><span>Guiones {r.guiones} · Diseños {r.disenos} · Aprobaciones {r.aprobaciones} · Publicaciones {r.publicaciones} · Métricas {r.metricas}</span></div>
             ))}
             {!equipo.length ? <small>Sin actividad registrada.</small> : null}
           </div>
@@ -1372,17 +1377,17 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                       <small>{p.fecha} · {p.formato} · {redesText(p.redes)}</small>
 
                       <div className="task-meta pro-meta">
-                        <span>🎯 {p.objetivo || "Sin objetivo"}</span>
-                        <span className={urgent ? "hot" : ""}>🚦 Prioridad: {p.prioridad || "Media"}</span>
-                        <span className={materialOk ? "ok" : "muted"}>📁 {materialOk ? "Material de referencia cargado" : "Material opcional no cargado"}</span>
+                        <span>Objetivo: {p.objetivo || "Sin objetivo"}</span>
+                        <span className={urgent ? "hot" : ""}>Prioridad: {p.prioridad || "Media"}</span>
+                        <span className={materialOk ? "ok" : "muted"}>Material: {materialOk ? "Material de referencia cargado" : "Material opcional no cargado"}</span>
                       </div>
 
                       <div className="digital-footprint">
-                        <span>✍️ Guion: {p.creado_por || "Sin registro"}</span>
-                        {designOwner ? <span>🎨 Diseño tomado por: {designOwner}</span> : null}
-                        {p.aprobado_por ? <span>✅ Aprobó: {p.aprobado_por}</span> : null}
-                        {p.publicado_por ? <span>🚀 Publicó: {p.publicado_por}</span> : null}
-                        {p.metricas_capturadas_por ? <span>📊 Métricas: {p.metricas_capturadas_por}</span> : null}
+                        <span>Guion: {p.creado_por || "Sin registro"}</span>
+                        {designOwner ? <span>Diseño tomado por: {designOwner}</span> : null}
+                        {p.aprobado_por ? <span>Aprobó: {p.aprobado_por}</span> : null}
+                        {p.publicado_por ? <span>Publicó: {p.publicado_por}</span> : null}
+                        {p.metricas_capturadas_por ? <span>Métricas: {p.metricas_capturadas_por}</span> : null}
                       </div>
 
                       {noteIsCorrection ? <div className="note correction-note">Corrección activa: {p.notas}</div> : null}
@@ -1469,15 +1474,15 @@ function FinanzasView({ finanzas, empresas, setModalFin, agencia, getEmpresa }) 
     <div className="fade">
       <div className="tabs mb">
         <button className={subTab === "Cobranza" ? "active" : ""} onClick={() => setSubTab("Cobranza")} type="button">Cobranza y Avisos</button>
-        <button className={subTab === "Registro" ? "active" : ""} onClick={() => setSubTab("Registro")} type="button">Ingresos y Nómina</button>
+        <button className={subTab === "Registro" ? "active" : ""} onClick={() => setSubTab("Registro")} type="button">Ingresos y distribución</button>
       </div>
 
       {subTab === "Registro" ? (
         <>
           <div className="kpi-grid">
             <KpiCard title="Ingreso Bruto" value={mx(totals.pago)} color="green" />
-            <KpiCard title="Comisiones Jarek" value={mx(totals.jarek)} color="slate" />
-            <KpiCard title="Comisiones Paloma" value={mx(totals.paloma)} color="slate" />
+            <KpiCard title="Pago Jarek" value={mx(totals.jarek)} color="slate" />
+            <KpiCard title="Pago Paloma" value={mx(totals.paloma)} color="slate" />
             <KpiCard title="Neto Agencia" value={mx(totals.luis + totals.thalia)} color="blue" />
           </div>
 
@@ -2078,7 +2083,7 @@ function ModalCRM({ initial = {}, onSave, onClose }) {
 
           <div className="grid three">
             <Field label="Pago mensual">
-              <input type="number" min="0" value={form.pago_mensual || 0} onChange={(e) => setForm({ ...form, pago_mensual: Number(e.target.value) })} />
+              <input type="number" min="0" value={form.pago_mensual || ""} placeholder="0" onChange={(e) => setForm({ ...form, pago_mensual: Number(e.target.value) })} />
             </Field>
 
             <Field label="Primer día de pago">
@@ -2178,7 +2183,7 @@ function ModalCRM({ initial = {}, onSave, onClose }) {
                       </Field>
 
                       <Field label="Monto del servicio">
-                        <input type="number" min="0" value={servicio.monto || 0} onChange={(e) => updateServicioEmpresa(servicio.id, { monto: Number(e.target.value) })} />
+                        <input type="number" min="0" value={servicio.monto || ""} placeholder="0" onChange={(e) => updateServicioEmpresa(servicio.id, { monto: Number(e.target.value) })} />
                       </Field>
 
                       <Field label="Se pagará en">
@@ -2328,7 +2333,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
             <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value, material_missing: false })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
             <label className="material-toggle">
               <input type="checkbox" checked={Boolean(form.material_missing || form.estado === "Falta Material Drive")} onChange={(e) => setForm({ ...form, material_missing: e.target.checked, material_drive: e.target.checked ? "" : form.material_drive, estado: e.target.checked ? "Falta Material Drive" : (form.estado === "Falta Material Drive" ? "Guion Pendiente" : form.estado) })} />
-              <span>📁 No hay material disponible para esta publicación</span>
+              <span>No hay material disponible para esta publicación</span>
             </label>
           </div>
 
@@ -2361,7 +2366,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
   );
 }
 
-function ModalFinanza({ initial = {}, empresas, onSave, onClose }) {
+function ModalFinanza({ initial = {}, empresas, finanzas = [], onSave, onClose }) {
   const clientes = empresas.filter((e) => e.tipo !== "Prospecto");
   const selectedEmpresa = clientes.find((e) => sameId(e.id, initial?.empresa_id || clientes[0]?.id));
   const [form, setForm] = useState(
@@ -2385,6 +2390,53 @@ function ModalFinanza({ initial = {}, empresas, onSave, onClose }) {
   const serviciosEmpresa = normalizeServicios(empresaActiva?.servicios);
   const isServicio = form.tipo_ingreso === "Servicio";
 
+  // AZP_V6_PAYROLL_RULES
+  const nombreEmpresaRegla = String(empresaActiva?.nombre || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const mesPago = String(form.fecha || today()).slice(0, 7);
+
+  const nominaYaAplicadaEsteMes = finanzas.some((f) =>
+    sameId(f.empresa_id, form.empresa_id) &&
+    !sameId(f.id, initial?.id) &&
+    String(f.fecha || "").startsWith(mesPago) &&
+    (f.tipo_ingreso || "Redes") !== "Servicio" &&
+    (Number(f.paloma || 0) > 0 || Number(f.jarek || 0) > 0)
+  );
+
+  const getReglaNomina = () => {
+    if (nombreEmpresaRegla.includes("troncos")) {
+      return {
+        paloma: 1900,
+        jarek: 250,
+        label: "Super Troncos: Paloma $1,900 y Jarek $250 una sola vez al mes."
+      };
+    }
+
+    if (
+      nombreEmpresaRegla.includes("morgan") ||
+      nombreEmpresaRegla.includes("pajaretes") ||
+      nombreEmpresaRegla.includes("chenta") ||
+      nombreEmpresaRegla.includes("harmony")
+    ) {
+      return {
+        paloma: 0,
+        jarek: 0,
+        label: "Este cliente no genera pago para Paloma ni Jarek."
+      };
+    }
+
+    return {
+      paloma: 600,
+      jarek: 250,
+      label: "Regla general: Paloma $600 y Jarek $250 una sola vez al mes."
+    };
+  };
+
+  const reglaNomina = getReglaNomina();
+
   const autoCalcular = () => {
     const pago = Number(form.pago || 0);
 
@@ -2394,21 +2446,31 @@ function ModalFinanza({ initial = {}, empresas, onSave, onClose }) {
     }
 
     const gas = pago > 6900 ? 1000 : 700;
-    const paloma = 600;
-    const jarek = 250;
+    const aplicarNomina = !nominaYaAplicadaEsteMes;
+    const paloma = aplicarNomina ? Number(reglaNomina.paloma || 0) : 0;
+    const jarek = aplicarNomina ? Number(reglaNomina.jarek || 0) : 0;
     const neto = Math.max(pago - gas - paloma - jarek, 0);
     setForm({ ...form, gas, paloma, jarek, luis: neto / 2, thalia: neto / 2 });
   };
 
   return (
-    <Modal title="Registro contable profesional" onClose={onClose} width="840px">
+    <Modal title="Registro de pago y distribución" onClose={onClose} width="840px">
       <div className="finance-modal-pro">
         <div className="finance-hero-box">
           <div>
             <strong>{isServicio ? "Ingreso por servicio" : "Ingreso por redes sociales"}</strong>
-            <span>{isServicio ? "Se divide únicamente entre Thalia y Luis." : "Mantiene el cálculo actual de operación, Paloma, Jarek, Luis y Thalia."}</span>
+            <span>{isServicio ? "Se divide únicamente entre Thalia y Luis." : "Aplica la regla de nómina por cliente y solo una vez al mes."}</span>
           </div>
           <Badge tone={isServicio ? "purple" : "green"}>{isServicio ? "Servicio" : "Redes"}</Badge>
+        </div>
+
+        <div className="payroll-rule-box">
+          <strong>Regla aplicada</strong>
+          <span>
+            {isServicio
+              ? "Los servicios extra se dividen únicamente entre Thalia y Luis."
+              : `${reglaNomina.label}${nominaYaAplicadaEsteMes ? " La nómina de Paloma/Jarek ya fue aplicada este mes, por eso este pago queda en $0 para ellos." : " Si el cliente paga en partes, se aplica en el primer pago y no se repite en el segundo."}`}
+          </span>
         </div>
 
         <div className="grid two">
@@ -2445,7 +2507,7 @@ function ModalFinanza({ initial = {}, empresas, onSave, onClose }) {
           )}
 
           <Field label="Ingreso bruto">
-            <input type="number" value={form.pago || 0} onChange={(e) => setForm({ ...form, pago: Number(e.target.value) })} />
+            <input type="number" value={form.pago || ""} placeholder="0" onChange={(e) => setForm({ ...form, pago: Number(e.target.value) })} />
           </Field>
 
           <div className="field align-bottom">
@@ -2456,23 +2518,23 @@ function ModalFinanza({ initial = {}, empresas, onSave, onClose }) {
         <div className="finance-split-grid">
           <div className={isServicio ? "split-card disabled" : "split-card"}>
             <span>Gasolina Thalia</span>
-            <input type="number" value={form.gas || 0} disabled={isServicio} onChange={(e) => setForm({ ...form, gas: Number(e.target.value) })} />
+            <input type="number" value={form.gas || ""} placeholder="0" disabled={isServicio} onChange={(e) => setForm({ ...form, gas: Number(e.target.value) })} />
           </div>
           <div className={isServicio ? "split-card disabled" : "split-card"}>
             <span>Paloma</span>
-            <input type="number" value={form.paloma || 0} disabled={isServicio} onChange={(e) => setForm({ ...form, paloma: Number(e.target.value) })} />
+            <input type="number" value={form.paloma || ""} placeholder="0" disabled={isServicio} onChange={(e) => setForm({ ...form, paloma: Number(e.target.value) })} />
           </div>
           <div className={isServicio ? "split-card disabled" : "split-card"}>
             <span>Jarek</span>
-            <input type="number" value={form.jarek || 0} disabled={isServicio} onChange={(e) => setForm({ ...form, jarek: Number(e.target.value) })} />
+            <input type="number" value={form.jarek || ""} placeholder="0" disabled={isServicio} onChange={(e) => setForm({ ...form, jarek: Number(e.target.value) })} />
           </div>
           <div className="split-card highlight">
             <span>Neto Luis</span>
-            <input type="number" value={form.luis || 0} onChange={(e) => setForm({ ...form, luis: Number(e.target.value) })} />
+            <input type="number" value={form.luis || ""} placeholder="0" onChange={(e) => setForm({ ...form, luis: Number(e.target.value) })} />
           </div>
           <div className="split-card highlight">
             <span>Neto Thalia</span>
-            <input type="number" value={form.thalia || 0} onChange={(e) => setForm({ ...form, thalia: Number(e.target.value) })} />
+            <input type="number" value={form.thalia || ""} placeholder="0" onChange={(e) => setForm({ ...form, thalia: Number(e.target.value) })} />
           </div>
         </div>
       </div>
@@ -3811,5 +3873,62 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
 .premium-event.urgent { outline:2px solid rgba(245,158,11,.30); }
 @media (max-width: 1100px) { .ops-alert-grid { grid-template-columns:1fr; } .calendar-hero { flex-direction:column; align-items:flex-start; } .calendar-mini-kpis { min-width:0; width:100%; grid-template-columns:repeat(2,1fr); } }
 @media (max-width: 760px) { .calendar-mini-kpis { grid-template-columns:1fr; } .calendar-hero { padding:22px; } .calendar-hero h3 { font-size:26px; } }
+
+
+/* AZP V6 - operación sobria y reglas financieras */
+.ops-alert-card span,
+.team-mini-table span,
+.task-meta span,
+.digital-footprint span {
+  letter-spacing: 0 !important;
+}
+
+.team-mini-table div {
+  align-items: flex-start !important;
+  flex-direction: column !important;
+}
+
+.team-mini-table span {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  text-transform: none !important;
+}
+
+.ops-alert-card div:first-child span {
+  font-size: 12px !important;
+  letter-spacing: .09em !important;
+}
+
+.payroll-rule-box {
+  margin: 16px 0 22px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid rgba(148,163,184,.28);
+  color: #334155;
+}
+
+.payroll-rule-box strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.payroll-rule-box span {
+  display: block;
+  color: #64748b;
+  line-height: 1.5;
+  font-weight: 800;
+}
+
+.finance-split-grid input::placeholder,
+.grid input::placeholder {
+  color: #94a3b8;
+}
+
 
 `;
