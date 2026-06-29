@@ -1218,73 +1218,127 @@ function CRMView({ empresas, calendario, setModalCRM, setModalConsult, setModalC
   );
 }
 
+
 function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas }) {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
+  const todayDate = new Date();
+  const [viewDate, setViewDate] = useState(() => new Date(todayDate.getFullYear(), todayDate.getMonth(), 1));
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
   const cells = Array.from({ length: totalCells });
-  const monthLabel = new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(now);
-  const visibles = calendario.filter((p) => String(p.fecha || "").startsWith(`${year}-${String(month + 1).padStart(2, "0")}`));
-  const publicados = visibles.filter((p) => p.estado === "Publicado").length;
-  const urgentes = visibles.filter((p) => ["Alta", "Urgente"].includes(p.prioridad) && p.estado !== "Publicado").length;
-  const sinMaterial = visibles.filter((p) => p.estado === "Falta Material Drive").length;
+
+  const pad = (n) => String(n).padStart(2, "0");
+  const monthStart = `${year}-${pad(month + 1)}-01`;
+  const monthEnd = `${year}-${pad(month + 1)}-${pad(daysInMonth)}`;
+
+  const monthItems = calendario.filter((p) => {
+    const fecha = dateOnly(p.fecha);
+    return fecha >= monthStart && fecha <= monthEnd;
+  });
+
+  const publicados = monthItems.filter((p) => p.estado === "Publicado").length;
+  const urgentes = monthItems.filter((p) => ["Alta", "Urgente"].includes(p.prioridad) && p.estado !== "Publicado").length;
+  const sinMaterial = monthItems.filter((p) => !hasMaterialDrive(p) && p.estado !== "Publicado").length;
+
+  const monthLabel = new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(viewDate);
+  const monthName = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
+  const meses = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+  ];
+
+  const goMonth = (offset) => {
+    setViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+  };
+
+  const goToday = () => {
+    const now = new Date();
+    setViewDate(new Date(now.getFullYear(), now.getMonth(), 1));
+  };
+
+  const setMonth = (newMonth) => {
+    setViewDate((prev) => new Date(prev.getFullYear(), Number(newMonth), 1));
+  };
+
+  const setYear = (newYear) => {
+    const cleanYear = Number(newYear || year);
+    if (cleanYear >= 2020 && cleanYear <= 2035) {
+      setViewDate((prev) => new Date(cleanYear, prev.getMonth(), 1));
+    }
+  };
 
   return (
-    <div className="calendar-pro fade">
-      <div className="calendar-hero">
+    <div className="fade calendar-pro-page">
+      <div className="calendar-pro-hero">
         <div>
-          <span>Calendario editorial</span>
-          <h3>{monthLabel}</h3>
-          <p>Vista interactiva por fecha, prioridad y estado. Las publicaciones verdes abren métricas.</p>
+          <span className="eyebrow">Calendario editorial</span>
+          <h2>{monthName}</h2>
+          <p>Vista interactiva por fecha, prioridad y estado. Las publicaciones publicadas abren métricas.</p>
         </div>
-        <div className="calendar-mini-kpis">
-          <div><strong>{visibles.length}</strong><small>Total</small></div>
-          <div><strong>{publicados}</strong><small>Publicadas</small></div>
-          <div><strong>{urgentes}</strong><small>Urgentes</small></div>
-          <div><strong>{sinMaterial}</strong><small>Sin material</small></div>
+
+        <div className="calendar-pro-actions">
+          <button type="button" onClick={() => goMonth(-1)}>Mes anterior</button>
+          <button type="button" onClick={goToday}>Hoy</button>
+          <button type="button" onClick={() => goMonth(1)}>Mes siguiente</button>
+        </div>
+
+        <div className="calendar-pro-selectors">
+          <select value={month} onChange={(e) => setMonth(e.target.value)}>
+            {meses.map((m, idx) => <option key={m} value={idx}>{m}</option>)}
+          </select>
+          <input type="number" min="2020" max="2035" value={year} onChange={(e) => setYear(e.target.value)} />
+        </div>
+
+        <div className="calendar-pro-kpis">
+          <div><strong>{monthItems.length}</strong><span>Total</span></div>
+          <div><strong>{publicados}</strong><span>Publicadas</span></div>
+          <div><strong>{urgentes}</strong><span>Urgentes</span></div>
+          <div><strong>{sinMaterial}</strong><span>Sin material</span></div>
         </div>
       </div>
 
-      <div className="calendar-legend">
-        <span><i className="dot-published" /> Publicado</span>
-        <span><i className="dot-design" /> En diseño</span>
-        <span><i className="dot-review" /> Revisión</span>
-        <span><i className="dot-alert" /> Urgente / sin material</span>
+      <div className="calendar-pro-legend">
+        <span><i className="dot done-dot"></i>Publicado</span>
+        <span><i className="dot design-dot"></i>En diseño</span>
+        <span><i className="dot review-dot"></i>Revisión</span>
+        <span><i className="dot warning-dot"></i>Urgente / sin material</span>
       </div>
 
-      <div className="calendar calendar-premium">
-        {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((d) => <b key={d}>{d}</b>)}
+      <div className="calendar calendar-pro-grid">
+        {["DOM", "LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB"].map((d) => <b key={d}>{d}</b>)}
 
         {cells.map((_, idx) => {
           const day = idx - firstDay + 1;
           const valid = day >= 1 && day <= daysInMonth;
-          const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
           const items = valid ? calendario.filter((p) => dateOnly(p.fecha) === dateStr) : [];
+          const isToday = valid && dateOnly(new Date().toISOString()) === dateStr;
 
           return (
-            <div className={`day premium-day ${valid ? "" : "off"} ${items.length ? "has-items" : ""}`} key={idx}>
+            <div className={`day calendar-pro-day ${valid ? "" : "off"} ${isToday ? "today" : ""}`} key={idx}>
               {valid ? <span className="day-num">{day}</span> : null}
-              <div className="day-events">
+
+              <div className="calendar-day-stack">
                 {items.map((p) => {
                   const emp = getEmpresa(p.empresa_id);
                   const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
-                  const urgent = ["Alta", "Urgente"].includes(p.prioridad);
-                  const noMaterial = p.estado === "Falta Material Drive";
+                  const openItem = () => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p);
+                  const urgent = ["Alta", "Urgente"].includes(p.prioridad) && p.estado !== "Publicado";
+                  const noMaterial = !hasMaterialDrive(p) && p.estado !== "Publicado";
 
                   return (
-                    <button
-                      className={`event premium-event ${toneForState(p.estado)} ${urgent ? "urgent" : ""} ${noMaterial ? "no-material" : ""}`}
-                      type="button"
-                      key={p.id}
-                      onClick={() => p.estado === "Publicado" ? setModalMetricas(p) : setModalPub(p)}
-                      title={p.estado === "Publicado" ? "Capturar o editar métricas" : "Editar publicación"}
-                    >
-                      <span className="event-row"><strong>{empresaNombre}</strong><em>{labelEstado(p.estado)}</em></span>
-                      <small>{p.formato} · {redesText(p.redes)}</small>
-                      {urgent || noMaterial ? <span className="event-alert">{urgent ? `⚡ ${p.prioridad}` : ""}{urgent && noMaterial ? " · " : ""}{noMaterial ? "Material pendiente" : ""}</span> : null}
+                    <button className={`event calendar-pro-event ${toneForState(p.estado)} ${urgent ? "is-urgent" : ""} ${noMaterial ? "is-missing-material" : ""}`} type="button" key={p.id} onClick={openItem}>
+                      <div className="calendar-event-top">
+                        <strong>{empresaNombre}</strong>
+                        <small>{p.estado}</small>
+                      </div>
+                      <span>{p.tema || p.formato || "Publicación"}</span>
+                      <em>{p.formato} · {redesText(p.redes)}</em>
+                      {urgent ? <i>Prioridad {p.prioridad}</i> : null}
+                      {noMaterial ? <i>Material pendiente</i> : null}
                     </button>
                   );
                 })}
@@ -1296,6 +1350,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
     </div>
   );
 }
+
 
 function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, setModalRechazo, setModalMetricas, user }) {
   const admin = isAdminRole(user);
@@ -3930,5 +3985,291 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   color: #94a3b8;
 }
 
+
+
+/* AZP V8 - calendario navegable profesional */
+.calendar-pro-page {
+  display: grid;
+  gap: 18px;
+}
+
+.calendar-pro-hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  gap: 18px;
+  align-items: center;
+  padding: 28px 30px;
+  border-radius: 30px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255,255,255,.16), transparent 30%),
+    linear-gradient(135deg, #0f172a 0%, #4c147f 48%, var(--c-primary) 100%);
+  box-shadow: 0 28px 80px rgba(15,23,42,.18);
+}
+
+.calendar-pro-hero .eyebrow {
+  display: block;
+  color: rgba(255,255,255,.70);
+  text-transform: uppercase;
+  letter-spacing: .16em;
+  font-size: 11px;
+  font-weight: 950;
+  margin-bottom: 10px;
+}
+
+.calendar-pro-hero h2 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.calendar-pro-hero p {
+  margin: 10px 0 0;
+  color: rgba(255,255,255,.76);
+  font-size: 14px;
+}
+
+.calendar-pro-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.calendar-pro-actions button,
+.calendar-pro-selectors select,
+.calendar-pro-selectors input {
+  height: 46px;
+  border: 1px solid rgba(255,255,255,.20);
+  border-radius: 15px;
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  font-weight: 950;
+  padding: 0 16px;
+  outline: none;
+  backdrop-filter: blur(14px);
+}
+
+.calendar-pro-actions button:hover {
+  background: rgba(255,255,255,.22);
+  transform: translateY(-1px);
+}
+
+.calendar-pro-selectors {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.calendar-pro-selectors select option {
+  color: #0f172a;
+}
+
+.calendar-pro-selectors input {
+  width: 92px;
+}
+
+.calendar-pro-kpis {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.calendar-pro-kpis div {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.13);
+  border: 1px solid rgba(255,255,255,.15);
+}
+
+.calendar-pro-kpis strong {
+  display: block;
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -.04em;
+}
+
+.calendar-pro-kpis span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 900;
+  margin-top: 7px;
+  text-transform: uppercase;
+}
+
+.calendar-pro-legend {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.calendar-pro-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.24);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 950;
+  box-shadow: 0 10px 24px rgba(15,23,42,.06);
+}
+
+.calendar-pro-legend .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.done-dot { background: #10b981; }
+.design-dot { background: #3b82f6; }
+.review-dot { background: #8b5cf6; }
+.warning-dot { background: #f59e0b; }
+
+.calendar-pro-grid {
+  border-radius: 28px !important;
+  overflow: hidden !important;
+  background: #fff !important;
+  border: 1px solid rgba(148,163,184,.28) !important;
+  box-shadow: 0 28px 90px rgba(15,23,42,.10) !important;
+}
+
+.calendar-pro-day {
+  min-height: 164px !important;
+  background: linear-gradient(180deg, #ffffff, #fbfdff) !important;
+  position: relative;
+}
+
+.calendar-pro-day.today {
+  background: linear-gradient(180deg, #f5f3ff, #ffffff) !important;
+  box-shadow: inset 0 0 0 2px rgba(153,28,204,.18);
+}
+
+.calendar-day-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.calendar-pro-event {
+  text-align: left !important;
+  padding: 12px !important;
+  border-radius: 16px !important;
+  border: 0 !important;
+  color: #fff !important;
+  box-shadow: 0 14px 30px rgba(15,23,42,.16) !important;
+  transition: transform .16s ease, box-shadow .16s ease, filter .16s ease !important;
+}
+
+.calendar-pro-event:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 20px 44px rgba(15,23,42,.22) !important;
+  filter: saturate(1.05);
+}
+
+.calendar-event-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.calendar-event-top strong {
+  font-size: 13px;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.calendar-event-top small {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.20);
+  font-size: 9px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.calendar-pro-event span,
+.calendar-pro-event em,
+.calendar-pro-event i {
+  display: block;
+}
+
+.calendar-pro-event span {
+  margin-top: 7px;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.calendar-pro-event em {
+  margin-top: 4px;
+  font-style: normal;
+  color: rgba(255,255,255,.82);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.calendar-pro-event i {
+  margin-top: 7px;
+  font-style: normal;
+  color: #fff7ed;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.calendar-pro-event.is-urgent {
+  outline: 2px solid rgba(245,158,11,.78);
+}
+
+.calendar-pro-event.is-missing-material {
+  outline: 2px solid rgba(239,68,68,.62);
+}
+
+@media (max-width: 1100px) {
+  .calendar-pro-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-pro-actions,
+  .calendar-pro-selectors {
+    justify-content: flex-start;
+  }
+
+  .calendar-pro-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .calendar-pro-hero {
+    padding: 22px;
+    border-radius: 24px;
+  }
+
+  .calendar-pro-actions,
+  .calendar-pro-selectors {
+    flex-direction: column;
+  }
+
+  .calendar-pro-kpis {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-pro-grid {
+    overflow-x: auto !important;
+  }
+
+  .calendar-pro-day {
+    min-width: 190px;
+  }
+}
 
 `;
