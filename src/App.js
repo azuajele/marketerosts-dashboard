@@ -2359,6 +2359,7 @@ function ModalCRM({ initial = {}, onSave, onClose }) {
                 <option value={1}>1 parte: una fecha de cobro</option>
                 <option value={2}>2 partes: dos fechas de cobro</option>
                 <option value={3}>3 partes: tres fechas de cobro</option>
+<option value={4}>Semanal: cuatro fechas de cobro al mes</option>
               </select>
             </Field>
           </div>
@@ -2388,7 +2389,7 @@ function ModalCRM({ initial = {}, onSave, onClose }) {
                 </div>
               ))}
             </div>
-            <p className="muted small-copy">Ejemplo: si paga en 2 partes, puedes usar día 1 y día 15. El sistema podrá recordar cada fecha por separado.</p>
+            <p className="muted small-copy">Ejemplo: si paga en 2 partes, puedes usar día 1 y día 15. Si paga semanalmente, usa 4 fechas de cobro al mes. El sistema podrá recordar cada fecha por separado.</p>
           </div>
 
           <div className="form-section-title mt-section">
@@ -2439,6 +2440,7 @@ function ModalCRM({ initial = {}, onSave, onClose }) {
                           <option value={1}>1 parte</option>
                           <option value={2}>2 partes</option>
                           <option value={3}>3 partes</option>
+<option value={4}>Semanal</option>
                         </select>
                       </Field>
 
