@@ -190,6 +190,63 @@ const isWriterRole = (user) => String(user?.role || "").toLowerCase().includes("
 const isDesignerRole = (user) => String(user?.role || "").toLowerCase().includes("diseñador") || String(user?.role || "").toLowerCase().includes("disenador");
 const isStaffUser = (user) => Boolean(user?.email && isAllowedUser(user.email));
 
+const AZP_PRODUCTION_CONTROL_V10B = true;
+
+const PRODUCTION_PERMISSION_DEFAULTS = {
+  luis: { guion: true, diseno: true, aprobar: true, publicar: true, metricas: true },
+  thalia: { guion: true, diseno: true, aprobar: true, publicar: true, metricas: true },
+  paloma: { guion: true, diseno: false, aprobar: false, publicar: false, metricas: true },
+  jarek: { guion: false, diseno: true, aprobar: false, publicar: false, metricas: false },
+};
+
+const normalizePersonKey = (value = "") => {
+  const clean = String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  if (clean.includes("luis")) return "luis";
+  if (clean.includes("thalia") || clean.includes("talia")) return "thalia";
+  if (clean.includes("paloma")) return "paloma";
+  if (clean.includes("jarek")) return "jarek";
+  return clean.split("@")[0] || "staff";
+};
+
+const isLuisMasterUser = (user) => {
+  const haystack = `${user?.name || ""} ${user?.email || ""}`.toLowerCase();
+  return haystack.includes("luis");
+};
+
+const isDirectorOrAdminUser = (user) =>
+  user?.role === "Administrador" || user?.role === "Directora" || isLuisMasterUser(user);
+
+const loadProductionPermissions = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem("azp_production_permissions_v10b") || "{}");
+    return {
+      luis: { ...PRODUCTION_PERMISSION_DEFAULTS.luis, ...(saved.luis || {}) },
+      thalia: { ...PRODUCTION_PERMISSION_DEFAULTS.thalia, ...(saved.thalia || {}) },
+      paloma: { ...PRODUCTION_PERMISSION_DEFAULTS.paloma, ...(saved.paloma || {}) },
+      jarek: { ...PRODUCTION_PERMISSION_DEFAULTS.jarek, ...(saved.jarek || {}) },
+    };
+  } catch {
+    return PRODUCTION_PERMISSION_DEFAULTS;
+  }
+};
+
+const saveProductionPermissions = (value) => {
+  localStorage.setItem("azp_production_permissions_v10b", JSON.stringify(value));
+};
+
+const getProductionPermissionsForUser = (user, permissionsMap = loadProductionPermissions()) => {
+  if (isDirectorOrAdminUser(user)) {
+    return { guion: true, diseno: true, aprobar: true, publicar: true, metricas: true };
+  }
+
+  const key = normalizePersonKey(user?.email || user?.name || "");
+  return permissionsMap[key] || { guion: false, diseno: false, aprobar: false, publicar: false, metricas: false };
+};
+
+
 const getRoleByEmail = (email) => {
   const e = cleanEmail(email);
   if (e.includes("thalia")) return { name: "Thalia", role: "Directora" };
@@ -874,6 +931,31 @@ ${error.message}`);
   }
 
   const canAdmin = isAdminRole(user);
+
+  const deletePublication = async (pub) => {
+    if (!isLuisMasterUser(user)) {
+      setSystemMessage("Solo Luis Enrique puede eliminar publicaciones.");
+      return;
+    }
+
+    const empresa = empresas.find((e) => sameId(e.id, pub.empresa_id));
+    const label = `${empresa?.nombre || pub.empresa_nombre || "Sin empresa"} - ${pub.tema || pub.formato || "Publicación"}`;
+
+    if (!window.confirm(`¿Eliminar definitivamente esta publicación?\n\n${label}\n\nEsta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    const { error } = await supabase.from("calendario").delete().eq("id", pub.id);
+
+    if (error) {
+      setSystemMessage(`ERROR AL ELIMINAR PUBLICACIÓN: ${error.message}`);
+      return;
+    }
+
+    setSystemMessage("Publicación eliminada correctamente.");
+    await fetchCloudData();
+  };
+
   const canCreatePauta = isStaffUser(user);
 
   return (
@@ -959,6 +1041,7 @@ ${error.message}`);
               setModalPub={setModalPub}
               setModalRechazo={setModalRechazo}
               setModalMetricas={setModalMetricas}
+              deletePublication={deletePublication}
               user={user}
             />
           )}
@@ -1361,7 +1444,251 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas 
 }
 
 
-function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, setModalRechazo, setModalMetricas, user }) {
+
+function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, setModalRechazo, setModalMetricas, deletePublication, user }) {
+  const [query, setQuery] = useState("");
+  const [empresaFiltro, setEmpresaFiltro] = useState("__all");
+  const [estadoFiltro, setEstadoFiltro] = useState("__all");
+  const [permissionsMap, setPermissionsMap] = useState(() => loadProductionPermissions());
+
+  const isAdmin = isDirectorOrAdminUser(user);
+  const isLuis = isLuisMasterUser(user);
+  const myPermissions = getProductionPermissionsForUser(user, permissionsMap);
+
+  const updatePermission = (person, key) => {
+    if (!isAdmin) return;
+    const next = {
+      ...permissionsMap,
+      [person]: {
+        ...(permissionsMap[person] || PRODUCTION_PERMISSION_DEFAULTS[person]),
+        [key]: !(permissionsMap[person]?.[key] ?? PRODUCTION_PERMISSION_DEFAULTS[person]?.[key]),
+      },
+    };
+    setPermissionsMap(next);
+    saveProductionPermissions(next);
+  };
+
+  const empresaOptions = Array.from(
+    new Map(
+      calendario.map((p) => {
+        const emp = getEmpresa(p.empresa_id);
+        const id = p.empresa_id || emp?.id || p.empresa_nombre || "sin";
+        const nombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+        return [String(id), { id, nombre }];
+      })
+    ).values()
+  ).sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  const normalizeEstado = (estado) => {
+    if (estado === "Falta Material Drive" || estado === "Material opcional pendiente") return "Guion Pendiente";
+    return estado || "Guion Pendiente";
+  };
+
+  const visible = calendario
+    .filter((p) => {
+      const emp = getEmpresa(p.empresa_id);
+      const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+      const haystack = `${empresaNombre} ${p.tema || ""} ${p.formato || ""} ${p.estado || ""} ${p.prioridad || ""}`.toLowerCase();
+      const matchQuery = !query.trim() || haystack.includes(query.trim().toLowerCase());
+      const matchEmpresa = empresaFiltro === "__all" || String(p.empresa_id || emp?.id || p.empresa_nombre) === String(empresaFiltro);
+      const matchEstado = estadoFiltro === "__all" || normalizeEstado(p.estado) === estadoFiltro;
+      return matchQuery && matchEmpresa && matchEstado;
+    })
+    .sort((a, b) => String(a.fecha || "").localeCompare(String(b.fecha || "")));
+
+  const columns = [
+    { key: "guion", title: "Guiones pendientes", states: ["Guion Pendiente"] },
+    { key: "diseno", title: "En diseño", states: ["En Diseño", "Corrección"] },
+    { key: "revision", title: "Revisión", states: ["Diseño Concluido"] },
+    { key: "publicado", title: "Aprobadas / Publicadas", states: ["Aprobado", "Publicado"] },
+  ];
+
+  const stats = {
+    total: visible.length,
+    guiones: visible.filter((p) => normalizeEstado(p.estado) === "Guion Pendiente").length,
+    diseno: visible.filter((p) => ["En Diseño", "Corrección"].includes(normalizeEstado(p.estado))).length,
+    revision: visible.filter((p) => normalizeEstado(p.estado) === "Diseño Concluido").length,
+    publicadas: visible.filter((p) => normalizeEstado(p.estado) === "Publicado").length,
+    sinMaterial: visible.filter((p) => !hasMaterialDrive(p) && normalizeEstado(p.estado) !== "Publicado").length,
+  };
+
+  const canFinishDesign = (p) => {
+    if (isAdmin) return true;
+    const owner = normalizePersonKey(p.disenado_por || p.disenador || "");
+    const me = normalizePersonKey(user?.email || user?.name || "");
+    return myPermissions.diseno && owner && owner === me;
+  };
+
+  const takeDesign = (p) => {
+    if (!myPermissions.diseno) return;
+    updatePubState(p.id, "En Diseño");
+  };
+
+  const returnToScript = (p) => {
+    if (!isAdmin) return;
+    updatePubState(p.id, "Guion Pendiente");
+  };
+
+  const openMetrics = (p) => {
+    if (setModalMetricas) setModalMetricas(p);
+  };
+
+  const renderCard = (p) => {
+    const emp = getEmpresa(p.empresa_id);
+    const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+    const estado = normalizeEstado(p.estado);
+    const materialOk = hasMaterialDrive(p);
+    const urgent = ["Alta", "Urgente"].includes(p.prioridad);
+    const designOwner = p.disenado_por || p.disenador || "";
+    const hasCorrectionNote = /error|errores|correcci/i.test(String(p.notas || ""));
+
+    return (
+      <article className={`production-card-v10b ${toneForState(estado)} ${!materialOk && estado !== "Publicado" ? "missing-material" : ""}`} key={p.id}>
+        <div className="production-card-v10b-top">
+          <div>
+            <strong>{empresaNombre}</strong>
+            <span>{p.fecha} · {p.formato || "Publicación"}</span>
+          </div>
+          <small>{estado}</small>
+        </div>
+
+        <h4>{p.tema || "Publicación sin título"}</h4>
+        <p>{redesText(p.redes)}</p>
+
+        <div className="production-card-v10b-tags">
+          {urgent ? <span className="tag-priority">Prioridad {p.prioridad}</span> : null}
+          {!materialOk && estado !== "Publicado" ? <span className="tag-danger">Material pendiente</span> : <span>Material listo</span>}
+          {designOwner && estado !== "Guion Pendiente" ? <span>Diseño: {designOwner}</span> : null}
+          {p.creado_por ? <span>Guion: {p.creado_por}</span> : null}
+        </div>
+
+        {hasCorrectionNote ? <div className="production-note-v10b">{p.notas}</div> : null}
+
+        <div className="production-actions-v10b">
+          <button type="button" onClick={() => setModalPub(p)}>Ver / Editar</button>
+
+          {estado === "Guion Pendiente" && myPermissions.diseno ? (
+            <button type="button" onClick={() => takeDesign(p)}>Tomar diseño</button>
+          ) : null}
+
+          {["En Diseño", "Corrección"].includes(estado) && canFinishDesign(p) ? (
+            <button type="button" onClick={() => updatePubState(p.id, "Diseño Concluido")}>Terminar diseño</button>
+          ) : null}
+
+          {["En Diseño", "Corrección", "Diseño Concluido"].includes(estado) && isAdmin ? (
+            <button type="button" onClick={() => returnToScript(p)}>Regresar a guion</button>
+          ) : null}
+
+          {estado === "Diseño Concluido" && myPermissions.aprobar ? (
+            <>
+              <button type="button" onClick={() => updatePubState(p.id, "Aprobado")}>Aprobar</button>
+              <button type="button" onClick={() => setModalRechazo(p)}>Enviar corrección</button>
+            </>
+          ) : null}
+
+          {estado === "Aprobado" && myPermissions.publicar ? (
+            <button type="button" onClick={() => updatePubState(p.id, "Publicado")}>Marcar publicado</button>
+          ) : null}
+
+          {estado === "Publicado" && myPermissions.metricas ? (
+            <button type="button" onClick={() => openMetrics(p)}>{p.metricas ? "Editar métricas" : "Capturar métricas"}</button>
+          ) : null}
+
+          {isLuis && deletePublication ? (
+            <button className="danger-action" type="button" onClick={() => deletePublication(p)}>Eliminar</button>
+          ) : null}
+        </div>
+      </article>
+    );
+  };
+
+  return (
+    <div className="fade production-v10b-page">
+      <div className="production-v10b-header">
+        <div>
+          <span>Centro de producción</span>
+          <h2>Flujo de publicaciones</h2>
+          <p>Control por etapa, responsable y prioridad. Administración puede regresar piezas a guion. Solo Luis puede eliminar publicaciones.</p>
+        </div>
+        <div className="production-v10b-kpis">
+          <div><strong>{stats.total}</strong><small>Total</small></div>
+          <div><strong>{stats.guiones}</strong><small>Guiones</small></div>
+          <div><strong>{stats.diseno}</strong><small>Diseño</small></div>
+          <div><strong>{stats.revision}</strong><small>Revisión</small></div>
+          <div><strong>{stats.publicadas}</strong><small>Publicadas</small></div>
+          <div><strong>{stats.sinMaterial}</strong><small>Sin material</small></div>
+        </div>
+      </div>
+
+      {isAdmin ? (
+        <div className="permissions-v10b card">
+          <div className="permissions-v10b-head">
+            <strong>Permisos operativos</strong>
+            <span>Activa o desactiva qué pueden hacer Paloma y Jarek. Por defecto Paloma no puede tomar diseño.</span>
+          </div>
+
+          {["paloma", "jarek"].map((person) => (
+            <div className="permission-person-v10b" key={person}>
+              <b>{person === "paloma" ? "Paloma" : "Jarek"}</b>
+              {[
+                ["guion", "Crear / mover guion"],
+                ["diseno", "Tomar / terminar diseño"],
+                ["aprobar", "Aprobar"],
+                ["publicar", "Publicar"],
+                ["metricas", "Capturar métricas"],
+              ].map(([key, label]) => (
+                <label key={key}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(permissionsMap[person]?.[key])}
+                    onChange={() => updatePermission(person, key)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="production-filters-v10b card">
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar por cliente, título, formato o estado..." />
+        <select value={empresaFiltro} onChange={(e) => setEmpresaFiltro(e.target.value)}>
+          <option value="__all">Todas las empresas</option>
+          {empresaOptions.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+        </select>
+        <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)}>
+          <option value="__all">Todos los estados</option>
+          <option value="Guion Pendiente">Guion pendiente</option>
+          <option value="En Diseño">En diseño</option>
+          <option value="Corrección">Corrección</option>
+          <option value="Diseño Concluido">Diseño concluido</option>
+          <option value="Aprobado">Aprobado</option>
+          <option value="Publicado">Publicado</option>
+        </select>
+      </div>
+
+      <div className="production-board-v10b">
+        {columns.map((col) => {
+          const items = visible.filter((p) => col.states.includes(normalizeEstado(p.estado)));
+          return (
+            <section className="production-column-v10b" key={col.key}>
+              <div className="production-column-v10b-head">
+                <strong>{col.title}</strong>
+                <span>{items.length}</span>
+              </div>
+              <div className="production-column-v10b-body">
+                {items.map(renderCard)}
+                {!items.length ? <div className="production-empty-v10b">Sin publicaciones en esta etapa.</div> : null}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+) {
   const admin = isAdminRole(user);
   const staff = isStaffUser(user);
   const columns = [
@@ -4452,6 +4779,368 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
 
   .calendar-pro-day {
     min-width: 180px !important;
+  }
+}
+
+
+/* AZP V10B - Producción ordenada, permisos y control de eliminación */
+.production-v10b-page {
+  display: grid;
+  gap: 18px;
+}
+
+.production-v10b-header {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 20px;
+  align-items: center;
+  padding: 26px 28px;
+  border-radius: 28px;
+  color: #fff;
+  background: linear-gradient(135deg, #0f172a 0%, #3f1474 50%, var(--c-primary) 100%);
+  box-shadow: 0 24px 72px rgba(15,23,42,.15);
+}
+
+.production-v10b-header span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  font-weight: 950;
+  margin-bottom: 8px;
+}
+
+.production-v10b-header h2 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1;
+  letter-spacing: -.04em;
+}
+
+.production-v10b-header p {
+  margin: 9px 0 0;
+  color: rgba(255,255,255,.78);
+  font-size: 14px;
+  max-width: 780px;
+}
+
+.production-v10b-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, 108px);
+  gap: 10px;
+}
+
+.production-v10b-kpis div {
+  padding: 13px 14px;
+  border-radius: 18px;
+  background: rgba(255,255,255,.13);
+  border: 1px solid rgba(255,255,255,.15);
+}
+
+.production-v10b-kpis strong {
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.production-v10b-kpis small {
+  display: block;
+  margin-top: 6px;
+  color: rgba(255,255,255,.72);
+  font-weight: 900;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.permissions-v10b {
+  display: grid;
+  gap: 14px;
+  border-radius: 24px !important;
+}
+
+.permissions-v10b-head strong,
+.permission-person-v10b b {
+  display: block;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.permissions-v10b-head span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.permission-person-v10b {
+  display: grid;
+  grid-template-columns: 130px repeat(5, minmax(130px, 1fr));
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px solid rgba(148,163,184,.24);
+}
+
+.permission-person-v10b label {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.22);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.permission-person-v10b input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--c-primary);
+}
+
+.production-filters-v10b {
+  display: grid !important;
+  grid-template-columns: minmax(240px, 1fr) 260px 220px;
+  gap: 12px;
+  border-radius: 22px !important;
+}
+
+.production-filters-v10b input,
+.production-filters-v10b select {
+  min-height: 48px;
+  border-radius: 15px;
+  border: 1px solid rgba(148,163,184,.28);
+  padding: 0 14px;
+  color: #0f172a;
+  font-weight: 800;
+  outline: none;
+  background: #fff;
+}
+
+.production-board-v10b {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(260px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.production-column-v10b {
+  min-height: 540px;
+  max-height: calc(100vh - 320px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  background: #f8fafc;
+  border: 1px solid rgba(148,163,184,.26);
+  overflow: hidden;
+}
+
+.production-column-v10b-head {
+  min-height: 58px;
+  padding: 16px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid rgba(226,232,240,.95);
+}
+
+.production-column-v10b-head strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.production-column-v10b-head span {
+  min-width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--c-primary);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.production-column-v10b-body {
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  overflow: auto;
+}
+
+.production-card-v10b {
+  padding: 14px;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.25);
+  border-left: 5px solid var(--c-primary);
+  box-shadow: 0 14px 32px rgba(15,23,42,.07);
+}
+
+.production-card-v10b.missing-material {
+  border-left-color: #ef4444;
+}
+
+.production-card-v10b-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.production-card-v10b-top strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13px;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.production-card-v10b-top span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.production-card-v10b-top small {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.production-card-v10b h4 {
+  margin: 12px 0 5px;
+  color: #0f172a;
+  font-size: 16px;
+  line-height: 1.18;
+  letter-spacing: -.02em;
+}
+
+.production-card-v10b p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.production-card-v10b-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.production-card-v10b-tags span {
+  padding: 6px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.production-card-v10b-tags .tag-priority {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.production-card-v10b-tags .tag-danger {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.production-note-v10b {
+  margin-top: 12px;
+  padding: 10px 11px;
+  border-radius: 14px;
+  background: #fff7ed;
+  color: #9a3412;
+  border: 1px solid #fed7aa;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.production-actions-v10b {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.production-actions-v10b button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 13px;
+  background: #eef2ff;
+  color: #334155;
+  font-weight: 950;
+  font-size: 12px;
+}
+
+.production-actions-v10b .danger-action {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.production-empty-v10b {
+  padding: 26px 14px;
+  text-align: center;
+  color: #64748b;
+  background: #fff;
+  border: 1px dashed rgba(148,163,184,.35);
+  border-radius: 18px;
+  font-weight: 850;
+}
+
+@media (max-width: 1300px) {
+  .production-board-v10b {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+
+  .permission-person-v10b {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .permission-person-v10b b {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 820px) {
+  .production-v10b-header,
+  .production-filters-v10b,
+  .production-board-v10b {
+    grid-template-columns: 1fr;
+  }
+
+  .production-v10b-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .production-column-v10b {
+    max-height: none;
+  }
+
+  .permission-person-v10b {
+    grid-template-columns: 1fr;
   }
 }
 
