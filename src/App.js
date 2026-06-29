@@ -813,7 +813,16 @@ ${response.error.message}`);
       payload.notas = "";
     }
 
-    if (estado === "Aprobado") payload.aprobado_por = user.name;
+    
+    // AZP_FIX_FLUJO_DISENO_CORRECTO
+    if (estado === "Diseño Concluido") {
+      payload.disenado_por = current.disenado_por || current.disenador || user.name;
+      if (/error|errores|sin material|material/i.test(String(current.notas || ""))) {
+        payload.notas = "";
+      }
+    }
+
+if (estado === "Aprobado") payload.aprobado_por = user.name;
     if (estado === "Publicado") payload.publicado_por = user.name;
 
     const { error } = await supabase.from("calendario").update(payload).eq("id", id);
@@ -1015,7 +1024,7 @@ function DashboardView({ user, stats, empresas, calendario }) {
   const publicacionesSinMetricas = calendario.filter((p) => p.estado === "Publicado" && !p.metricas).slice(0, 8);
   const publicacionesHoy = calendario.filter((p) => isToday(p.fecha) && p.estado !== "Publicado").slice(0, 8);
   const publicacionesVencidas = calendario.filter((p) => isPastDate(p.fecha) && p.estado !== "Publicado").slice(0, 8);
-  const faltanMaterial = calendario.filter((p) => p.estado === "Falta Material Drive").slice(0, 8);
+  const faltanMaterial = calendario.filter((p) => p.estado === "Guion Pendiente").slice(0, 8);
 
   return (
     <div className="fade">
@@ -1364,7 +1373,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
 
   const abiertos = calendario.filter((p) => p.estado !== "Publicado");
   const urgentes = abiertos.filter((p) => ["Alta", "Urgente"].includes(p.prioridad)).slice(0, 6);
-  const sinMaterial = calendario.filter((p) => p.estado === "Falta Material Drive").slice(0, 6);
+  const sinMaterial = calendario.filter((p) => p.estado === "Guion Pendiente").slice(0, 6);
 
   const equipo = Object.values(calendario.reduce((acc, p) => {
     const add = (name, key) => {
@@ -1447,7 +1456,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
 
                       {noteIsCorrection ? <div className="note correction-note">Corrección activa: {p.notas}</div> : null}
                       {p.estado !== "Corrección" && p.notas ? <div className="note">Nota: {p.notas}</div> : null}
-                      {p.estado === "Falta Material Drive" ? <div className="note material-note">Sin material reportado. Esta alerta es visible para Paloma y administración hasta que alguien lo revise.</div> : null}
+                      {p.estado === "Guion Pendiente" ? <div className="note material-note">Sin material reportado. Esta alerta es visible para Paloma y administración hasta que alguien lo revise.</div> : null}
 
                       <div className="task-actions">
                         <button type="button" onClick={() => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p)}>Ver / Editar</button>
@@ -1460,7 +1469,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
                           <button type="button" onClick={() => updatePubState(p.id, "Falta Material Drive")}>No hay material</button>
                         ) : null}
 
-                        {staff && p.estado === "Falta Material Drive" ? (
+                        {staff && p.estado === "Guion Pendiente" ? (
                           <button type="button" onClick={() => updatePubState(p.id, "En Diseño", { notas: "Material revisado. Listo para continuar diseño." })}>Material recibido</button>
                         ) : null}
 
