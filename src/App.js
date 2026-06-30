@@ -1032,7 +1032,9 @@ ${error.message}`);
               setModalConfirmDelete={setModalConfirmDelete}
             />
           )}
-          {tab === "calendario" && <CalendarioView calendario={calendario} getEmpresa={getEmpresa} setModalPub={setModalPub} setModalMetricas={setModalMetricas} />}
+          {tab === "calendario" && <CalendarioView calendario={calendario} getEmpresa={getEmpresa} setModalPub={setModalPub} setModalMetricas={setModalMetricas} 
+              updatePubState={updatePubState}
+              user={user}/>}
           {tab === "produccion" && (
             <ProduccionView
               calendario={calendario}
@@ -1311,133 +1313,327 @@ function CRMView({ empresas, calendario, setModalCRM, setModalConsult, setModalC
 }
 
 
-function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas }) {
-  const todayDate = new Date();
-  const [viewDate, setViewDate] = useState(() => new Date(todayDate.getFullYear(), todayDate.getMonth(), 1));
+function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas, updatePubState, user }) {
+  const now = new Date();
+  const [viewDate, setViewDate] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
+  const [selectedDate, setSelectedDate] = useState(dateOnly(now.toISOString()));
+  const [empresaFiltro, setEmpresaFiltro] = useState("__all");
+  const [estadoFiltro, setEstadoFiltro] = useState("__all");
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
+  const pad = (n) => String(n).padStart(2, "0");
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
   const cells = Array.from({ length: totalCells });
-
-  const pad = (n) => String(n).padStart(2, "0");
   const monthStart = `${year}-${pad(month + 1)}-01`;
   const monthEnd = `${year}-${pad(month + 1)}-${pad(daysInMonth)}`;
 
-  const monthItems = calendario.filter((p) => {
-    const fecha = dateOnly(p.fecha);
-    return fecha >= monthStart && fecha <= monthEnd;
-  });
-
-  const publicados = monthItems.filter((p) => p.estado === "Publicado").length;
-  const urgentes = monthItems.filter((p) => ["Alta", "Urgente"].includes(p.prioridad) && p.estado !== "Publicado").length;
-  const sinMaterial = monthItems.filter((p) => !hasMaterialDrive(p) && p.estado !== "Publicado").length;
-
-  const monthLabel = new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(viewDate);
-  const monthName = monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1);
   const meses = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
     "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
   ];
 
+  const normalizeCalendarStatus = (estado) => {
+    if (["Falta Material Drive", "Material opcional pendiente", "Cliente no envió material"].includes(estado)) return "Guion Pendiente";
+    return estado || "Guion Pendiente";
+  };
+
+  const statusLabel = (p) => {
+    if (p.estado === "Cliente no envió material") return "Cliente no envió material";
+    if (!hasMaterialDrive(p) && normalizeCalendarStatus(p.estado) !== "Publicado") return "Material pendiente";
+    return normalizeCalendarStatus(p.estado);
+  };
+
+  const persona = normalizePersonKey(user?.email || user?.name || "");
+  const isPaloma = persona === "paloma";
+  const isJarek = persona === "jarek";
+  const isThalia = persona === "thalia";
+  const isLuis = isLuisMasterUser(user);
+
+  const empresaOptions = Array.from(
+    new Map(
+      calendario.map((p) => {
+        const emp = getEmpresa(p.empresa_id);
+        const id = p.empresa_id || emp?.id || p.empresa_nombre || "sin";
+        const nombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+        return [String(id), { id, nombre }];
+      })
+    ).values()
+  ).sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  const monthItems = calendario
+    .filter((p) => {
+      const fecha = dateOnly(p.fecha);
+      const emp = getEmpresa(p.empresa_id);
+      const empresaId = String(p.empresa_id || emp?.id || p.empresa_nombre || "sin");
+      const estado = normalizeCalendarStatus(p.estado);
+
+      const inMonth = fecha >= monthStart && fecha <= monthEnd;
+      const byEmpresa = empresaFiltro === "__all" || empresaId === String(empresaFiltro);
+      const byEstado =
+        estadoFiltro === "__all" ||
+        estado === estadoFiltro ||
+        (estadoFiltro === "Sin material" && (p.estado === "Cliente no envió material" || (!hasMaterialDrive(p) && estado !== "Publicado")));
+
+      return inMonth && byEmpresa && byEstado;
+    })
+    .sort((a, b) => String(a.fecha || "").localeCompare(String(b.fecha || "")));
+
+  const selectedItems = monthItems.filter((p) => dateOnly(p.fecha) === selectedDate);
+
+  const stats = {
+    total: monthItems.length,
+    guion: monthItems.filter((p) => normalizeCalendarStatus(p.estado) === "Guion Pendiente").length,
+    diseno: monthItems.filter((p) => ["En Diseño", "Corrección"].includes(normalizeCalendarStatus(p.estado))).length,
+    revision: monthItems.filter((p) => normalizeCalendarStatus(p.estado) === "Diseño Concluido").length,
+    publicadas: monthItems.filter((p) => normalizeCalendarStatus(p.estado) === "Publicado").length,
+    sinMaterial: monthItems.filter((p) => p.estado === "Cliente no envió material" || (!hasMaterialDrive(p) && normalizeCalendarStatus(p.estado) !== "Publicado")).length,
+  };
+
+  const monthName = `${meses[month]} ${year}`;
+
   const goMonth = (offset) => {
-    setViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + offset, 1));
+    setViewDate((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + offset, 1);
+      setSelectedDate(`${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`);
+      return next;
+    });
   };
 
   const goToday = () => {
-    const now = new Date();
-    setViewDate(new Date(now.getFullYear(), now.getMonth(), 1));
+    const today = new Date();
+    setViewDate(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDate(dateOnly(today.toISOString()));
   };
 
   const setMonth = (newMonth) => {
-    setViewDate((prev) => new Date(prev.getFullYear(), Number(newMonth), 1));
+    const next = new Date(year, Number(newMonth), 1);
+    setViewDate(next);
+    setSelectedDate(`${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`);
   };
 
   const setYear = (newYear) => {
     const cleanYear = Number(newYear || year);
     if (cleanYear >= 2020 && cleanYear <= 2035) {
-      setViewDate((prev) => new Date(cleanYear, prev.getMonth(), 1));
+      const next = new Date(cleanYear, month, 1);
+      setViewDate(next);
+      setSelectedDate(`${next.getFullYear()}-${pad(next.getMonth() + 1)}-01`);
     }
   };
 
+  const markNoMaterial = (p) => {
+    if (!updatePubState) return;
+    if (window.confirm("¿Marcar esta publicación como CLIENTE NO ENVIÓ MATERIAL? Se verá en calendario y estadísticas como material pendiente.")) {
+      updatePubState(p.id, "Cliente no envió material");
+    }
+  };
+
+  const handleCalendarClick = (p) => {
+    const estado = normalizeCalendarStatus(p.estado);
+    const materialOk = hasMaterialDrive(p);
+
+    if (isPaloma) {
+      if (estado === "Publicado") {
+        if (setModalMetricas) setModalMetricas(p);
+        return;
+      }
+
+      window.alert("NO HAY MÉTRICAS PENDIENTES. Las métricas solo se capturan cuando la publicación ya está marcada como Publicado.");
+      return;
+    }
+
+    if (isJarek) {
+      if (estado === "Guion Pendiente") {
+        if (!materialOk || p.estado === "Cliente no envió material") {
+          window.alert("Esta publicación todavía no puede pasar a diseño porque el cliente no ha enviado el material.");
+          return;
+        }
+
+        if (window.confirm("¿DESEAS TOMAR ESTA PUBLICACIÓN PARA DISEÑAR?")) {
+          updatePubState(p.id, "En Diseño");
+        }
+        return;
+      }
+
+      setModalPub(p);
+      return;
+    }
+
+    if (isThalia && estado === "Diseño Concluido") {
+      if (window.confirm("¿DESEA REVISAR LA PUBLICACIÓN ANTES DE APROBARLA?")) {
+        setModalPub(p);
+      }
+      return;
+    }
+
+    if (isLuis && estado === "Publicado" && setModalMetricas) {
+      setModalMetricas(p);
+      return;
+    }
+
+    setModalPub(p);
+  };
+
+  const getDayItems = (dateStr) => monthItems.filter((p) => dateOnly(p.fecha) === dateStr);
+
+  const renderPublicationMini = (p) => {
+    const emp = getEmpresa(p.empresa_id);
+    const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+    const label = statusLabel(p);
+    const urgent = ["Alta", "Urgente"].includes(p.prioridad);
+    const noMaterial = p.estado === "Cliente no envió material" || (!hasMaterialDrive(p) && normalizeCalendarStatus(p.estado) !== "Publicado");
+
+    return (
+      <button
+        type="button"
+        className={`calendar-v11-mini ${toneForState(normalizeCalendarStatus(p.estado))} ${noMaterial ? "no-material" : ""}`}
+        key={p.id}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleCalendarClick(p);
+        }}
+      >
+        <strong>{empresaNombre}</strong>
+        <span>{p.tema || p.formato || "Publicación"}</span>
+        <em>{urgent ? "Urgente · " : ""}{label}</em>
+      </button>
+    );
+  };
+
   return (
-    <div className="fade calendar-pro-page">
-      <div className="calendar-pro-hero">
+    <div className="fade calendar-v11-page">
+      <div className="calendar-v11-hero">
         <div>
-          <span className="eyebrow">Calendario editorial</span>
+          <span>Calendario profesional</span>
           <h2>{monthName}</h2>
-          <p>Vista interactiva por fecha, prioridad y estado. Las publicaciones publicadas abren métricas.</p>
+          <p>Vista editorial por día, estado y responsable. Desde aquí se pueden revisar publicaciones, tomar diseño, capturar métricas y marcar material no recibido.</p>
         </div>
 
-        <div className="calendar-pro-actions">
-          <button type="button" onClick={() => goMonth(-1)}>Mes anterior</button>
+        <div className="calendar-v11-controls">
+          <button type="button" onClick={() => goMonth(-1)}>Anterior</button>
           <button type="button" onClick={goToday}>Hoy</button>
-          <button type="button" onClick={() => goMonth(1)}>Mes siguiente</button>
-        </div>
-
-        <div className="calendar-pro-selectors">
+          <button type="button" onClick={() => goMonth(1)}>Siguiente</button>
           <select value={month} onChange={(e) => setMonth(e.target.value)}>
             {meses.map((m, idx) => <option key={m} value={idx}>{m}</option>)}
           </select>
           <input type="number" min="2020" max="2035" value={year} onChange={(e) => setYear(e.target.value)} />
         </div>
-
-        <div className="calendar-pro-kpis">
-          <div><strong>{monthItems.length}</strong><span>Total</span></div>
-          <div><strong>{publicados}</strong><span>Publicadas</span></div>
-          <div><strong>{urgentes}</strong><span>Urgentes</span></div>
-          <div><strong>{sinMaterial}</strong><span>Sin material</span></div>
-        </div>
       </div>
 
-      <div className="calendar-pro-legend">
-        <span><i className="dot done-dot"></i>Publicado</span>
-        <span><i className="dot design-dot"></i>En diseño</span>
-        <span><i className="dot review-dot"></i>Revisión</span>
-        <span><i className="dot warning-dot"></i>Urgente / sin material</span>
+      <div className="calendar-v11-stats">
+        <div><strong>{stats.total}</strong><span>Total</span></div>
+        <div><strong>{stats.guion}</strong><span>Guiones</span></div>
+        <div><strong>{stats.diseno}</strong><span>Diseño</span></div>
+        <div><strong>{stats.revision}</strong><span>Revisión</span></div>
+        <div><strong>{stats.publicadas}</strong><span>Publicadas</span></div>
+        <div><strong>{stats.sinMaterial}</strong><span>Sin material</span></div>
       </div>
 
-      <div className="calendar calendar-pro-grid">
-        {["DOM", "LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB"].map((d) => <b key={d}>{d}</b>)}
+      <div className="calendar-v11-filters">
+        <select value={empresaFiltro} onChange={(e) => setEmpresaFiltro(e.target.value)}>
+          <option value="__all">Todas las empresas</option>
+          {empresaOptions.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+        </select>
+        <select value={estadoFiltro} onChange={(e) => setEstadoFiltro(e.target.value)}>
+          <option value="__all">Todos los estados</option>
+          <option value="Guion Pendiente">Guiones pendientes</option>
+          <option value="En Diseño">En diseño</option>
+          <option value="Diseño Concluido">Diseño concluido</option>
+          <option value="Publicado">Publicadas</option>
+          <option value="Sin material">Sin material</option>
+        </select>
+      </div>
 
-        {cells.map((_, idx) => {
-          const day = idx - firstDay + 1;
-          const valid = day >= 1 && day <= daysInMonth;
-          const dateStr = `${year}-${pad(month + 1)}-${pad(day)}`;
-          const items = valid ? calendario.filter((p) => dateOnly(p.fecha) === dateStr) : [];
-          const isToday = valid && dateOnly(new Date().toISOString()) === dateStr;
+      <div className="calendar-v11-layout">
+        <section className="calendar-v11-board">
+          <div className="calendar-v11-weekdays">
+            {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((d) => <b key={d}>{d}</b>)}
+          </div>
 
-          return (
-            <div className={`day calendar-pro-day ${valid ? "" : "off"} ${isToday ? "today" : ""}`} key={idx}>
-              {valid ? <span className="day-num">{day}</span> : null}
+          <div className="calendar-v11-grid">
+            {cells.map((_, idx) => {
+              const day = idx - firstDay + 1;
+              const valid = day >= 1 && day <= daysInMonth;
+              const dateStr = valid ? `${year}-${pad(month + 1)}-${pad(day)}` : "";
+              const items = valid ? getDayItems(dateStr) : [];
+              const isSelected = valid && selectedDate === dateStr;
+              const isToday = valid && dateOnly(new Date().toISOString()) === dateStr;
+              const preview = items.slice(0, 3);
+              const hidden = Math.max(items.length - preview.length, 0);
 
-              <div className="calendar-day-stack">
-                {items.map((p) => {
-                  const emp = getEmpresa(p.empresa_id);
-                  const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
-                  const openItem = () => p.estado === "Publicado" && setModalMetricas ? setModalMetricas(p) : setModalPub(p);
-                  const urgent = ["Alta", "Urgente"].includes(p.prioridad) && p.estado !== "Publicado";
-                  const noMaterial = !hasMaterialDrive(p) && p.estado !== "Publicado";
-
-                  return (
-                    <button className={`event calendar-pro-event ${toneForState(p.estado)} ${urgent ? "is-urgent" : ""} ${noMaterial ? "is-missing-material" : ""}`} type="button" key={p.id} onClick={openItem}>
-                      <div className="calendar-event-top">
-                        <strong>{empresaNombre}</strong>
-                        <small>{p.estado}</small>
+              return (
+                <button
+                  type="button"
+                  className={`calendar-v11-day ${valid ? "" : "empty"} ${isSelected ? "selected" : ""} ${isToday ? "today" : ""}`}
+                  key={idx}
+                  onClick={() => valid && setSelectedDate(dateStr)}
+                  disabled={!valid}
+                >
+                  {valid ? (
+                    <>
+                      <div className="calendar-v11-daytop">
+                        <strong>{day}</strong>
+                        {items.length ? <span>{items.length}</span> : null}
                       </div>
-                      <span>{p.tema || p.formato || "Publicación"}</span>
-                      <em>{p.formato} · {redesText(p.redes)}</em>
-                      {urgent ? <i>Prioridad {p.prioridad}</i> : null}
-                      {noMaterial ? <i>Material pendiente</i> : null}
+                      <div className="calendar-v11-dayitems">
+                        {preview.map(renderPublicationMini)}
+                        {hidden > 0 ? <small>+ {hidden} más</small> : null}
+                      </div>
+                    </>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <aside className="calendar-v11-agenda">
+          <div className="calendar-v11-agenda-head">
+            <span>Detalle del día</span>
+            <h3>{selectedDate}</h3>
+            <p>{selectedItems.length} publicación(es)</p>
+          </div>
+
+          <div className="calendar-v11-agenda-list">
+            {selectedItems.map((p) => {
+              const emp = getEmpresa(p.empresa_id);
+              const empresaNombre = emp?.nombre || p.empresa_nombre || "Sin empresa";
+              const estado = normalizeCalendarStatus(p.estado);
+              const noMaterial = p.estado === "Cliente no envió material" || (!hasMaterialDrive(p) && estado !== "Publicado");
+
+              return (
+                <article className={`calendar-v11-agenda-card ${noMaterial ? "no-material" : ""}`} key={p.id}>
+                  <div className="agenda-v11-top">
+                    <strong>{empresaNombre}</strong>
+                    <small>{statusLabel(p)}</small>
+                  </div>
+                  <h4>{p.tema || "Publicación sin título"}</h4>
+                  <p>{p.formato || "Contenido"} · {redesText(p.redes)}</p>
+
+                  <div className="agenda-v11-actions">
+                    <button type="button" onClick={() => handleCalendarClick(p)}>
+                      {isPaloma && estado === "Publicado" ? "Capturar métricas" : isJarek && estado === "Guion Pendiente" ? "Tomar diseño" : "Abrir"}
                     </button>
-                  );
-                })}
+                    {estado !== "Publicado" ? (
+                      <button type="button" className="material-action" onClick={() => markNoMaterial(p)}>
+                        Cliente no envió material
+                      </button>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+
+            {!selectedItems.length ? (
+              <div className="calendar-v11-empty">
+                <strong>No hay publicaciones este día</strong>
+                <span>Selecciona otro día o cambia los filtros para revisar el calendario.</span>
               </div>
-            </div>
-          );
-        })}
+            ) : null}
+          </div>
+        </aside>
       </div>
     </div>
   );
@@ -1456,7 +1652,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
   const myPermissions = getProductionPermissionsForUser(user, permissionsMap);
 
   const updatePermission = (person, key) => {
-    if (!isAdmin) return;
+    if (!isLuis) return;
     const next = {
       ...permissionsMap,
       [person]: {
@@ -1480,7 +1676,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
   ).sort((a, b) => a.nombre.localeCompare(b.nombre));
 
   const normalizeEstado = (estado) => {
-    if (estado === "Falta Material Drive" || estado === "Material opcional pendiente") return "Guion Pendiente";
+    if (["Falta Material Drive", "Material opcional pendiente", "Cliente no envió material"].includes(estado)) return "Guion Pendiente";
     return estado || "Guion Pendiente";
   };
 
@@ -1620,7 +1816,7 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
         </div>
       </div>
 
-      {isAdmin ? (
+      {isLuis ? (
         <div className="permissions-v10b card">
           <div className="permissions-v10b-head">
             <strong>Permisos operativos</strong>
@@ -5000,6 +5196,513 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
 
   .permission-person-v10b {
     grid-template-columns: 1fr;
+  }
+}
+
+
+/* AZP V11 - Producción más elegante + calendario profesional */
+.permissions-v10b {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(148,163,184,.22) !important;
+  box-shadow: 0 18px 50px rgba(15,23,42,.06) !important;
+}
+
+.production-v10b-header {
+  padding: 28px 32px !important;
+  border-radius: 32px !important;
+  background:
+    radial-gradient(circle at top right, rgba(255,255,255,.20), transparent 32%),
+    linear-gradient(135deg, #0b1020 0%, #251052 48%, #9d19d8 100%) !important;
+}
+
+.production-v10b-header h2 {
+  font-size: 34px !important;
+  letter-spacing: -.05em !important;
+}
+
+.production-v10b-kpis div {
+  background: rgba(255,255,255,.15) !important;
+  backdrop-filter: blur(10px);
+}
+
+.production-board-v10b {
+  gap: 18px !important;
+}
+
+.production-column-v10b {
+  border-radius: 28px !important;
+  background: #f7f9fc !important;
+  border: 1px solid rgba(148,163,184,.22) !important;
+  box-shadow: 0 16px 44px rgba(15,23,42,.05) !important;
+}
+
+.production-column-v10b-head {
+  min-height: 64px !important;
+}
+
+.production-card-v10b {
+  border-radius: 22px !important;
+  box-shadow: 0 16px 36px rgba(15,23,42,.08) !important;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.production-card-v10b:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 48px rgba(15,23,42,.11) !important;
+}
+
+.production-actions-v10b button {
+  border-radius: 15px !important;
+}
+
+.calendar-v11-page {
+  display: grid;
+  gap: 18px;
+}
+
+.calendar-v11-hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 28px 32px;
+  border-radius: 32px;
+  color: #fff;
+  background:
+    radial-gradient(circle at top right, rgba(255,255,255,.18), transparent 34%),
+    linear-gradient(135deg, #0b1020 0%, #261052 50%, #9d19d8 100%);
+  box-shadow: 0 24px 72px rgba(15,23,42,.15);
+}
+
+.calendar-v11-hero span {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.calendar-v11-hero h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -.05em;
+}
+
+.calendar-v11-hero p {
+  margin: 10px 0 0;
+  color: rgba(255,255,255,.78);
+  max-width: 820px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.calendar-v11-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.calendar-v11-controls button,
+.calendar-v11-controls select,
+.calendar-v11-controls input,
+.calendar-v11-filters select {
+  min-height: 44px;
+  border-radius: 14px;
+  border: 1px solid rgba(148,163,184,.28);
+  padding: 0 14px;
+  font-weight: 900;
+  outline: none;
+}
+
+.calendar-v11-controls button,
+.calendar-v11-controls select,
+.calendar-v11-controls input {
+  background: rgba(255,255,255,.14);
+  color: #fff;
+  border-color: rgba(255,255,255,.20);
+}
+
+.calendar-v11-controls select option {
+  color: #0f172a;
+}
+
+.calendar-v11-controls input {
+  width: 92px;
+}
+
+.calendar-v11-stats {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+  gap: 12px;
+}
+
+.calendar-v11-stats div {
+  padding: 17px 18px;
+  border-radius: 22px;
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.22);
+  box-shadow: 0 14px 34px rgba(15,23,42,.05);
+}
+
+.calendar-v11-stats strong {
+  display: block;
+  color: #0f172a;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.calendar-v11-stats span {
+  display: block;
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.calendar-v11-filters {
+  display: grid;
+  grid-template-columns: 280px 240px;
+  gap: 12px;
+}
+
+.calendar-v11-filters select {
+  background: #fff;
+  color: #0f172a;
+}
+
+.calendar-v11-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 18px;
+  align-items: start;
+}
+
+.calendar-v11-board,
+.calendar-v11-agenda {
+  overflow: hidden;
+  border-radius: 28px;
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.22);
+  box-shadow: 0 22px 62px rgba(15,23,42,.07);
+}
+
+.calendar-v11-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  background: #f8fafc;
+  border-bottom: 1px solid rgba(226,232,240,.92);
+}
+
+.calendar-v11-weekdays b {
+  padding: 14px 12px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.calendar-v11-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.calendar-v11-day {
+  min-height: 148px;
+  padding: 10px;
+  border: 0;
+  border-right: 1px solid rgba(226,232,240,.92);
+  border-bottom: 1px solid rgba(226,232,240,.92);
+  background: linear-gradient(180deg, #fff, #fbfdff);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.calendar-v11-day:nth-child(7n) {
+  border-right: 0;
+}
+
+.calendar-v11-day:hover {
+  background: #f8fafc;
+}
+
+.calendar-v11-day.empty {
+  background: #f8fafc;
+  cursor: default;
+}
+
+.calendar-v11-day.selected {
+  background: #fbf5ff;
+  box-shadow: inset 0 0 0 2px rgba(157,25,216,.35);
+}
+
+.calendar-v11-day.today .calendar-v11-daytop strong {
+  color: var(--c-primary);
+}
+
+.calendar-v11-daytop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.calendar-v11-daytop strong {
+  color: #334155;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.calendar-v11-daytop span {
+  min-width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: var(--c-primary);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.calendar-v11-dayitems {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.calendar-v11-mini {
+  width: 100%;
+  min-height: 46px;
+  padding: 7px 8px;
+  border: 1px solid rgba(148,163,184,.22);
+  border-left: 4px solid var(--c-primary);
+  border-radius: 13px;
+  background: #fff;
+  text-align: left;
+  box-shadow: 0 8px 18px rgba(15,23,42,.05);
+}
+
+.calendar-v11-mini.no-material {
+  border-left-color: #ef4444;
+  background: #fffafa;
+}
+
+.calendar-v11-mini strong,
+.calendar-v11-mini span,
+.calendar-v11-mini em {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.calendar-v11-mini strong {
+  color: #0f172a;
+  font-size: 10px;
+  line-height: 1.05;
+  text-transform: uppercase;
+}
+
+.calendar-v11-mini span {
+  margin-top: 3px;
+  color: #334155;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.calendar-v11-mini em {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.calendar-v11-dayitems small {
+  width: fit-content;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 950;
+}
+
+.calendar-v11-agenda {
+  position: sticky;
+  top: 88px;
+}
+
+.calendar-v11-agenda-head {
+  padding: 22px 22px 18px;
+  color: #fff;
+  background: linear-gradient(135deg, #0f172a, #312e81);
+}
+
+.calendar-v11-agenda-head span {
+  display: block;
+  color: rgba(255,255,255,.72);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.calendar-v11-agenda-head h3 {
+  margin: 8px 0 4px;
+  font-size: 22px;
+}
+
+.calendar-v11-agenda-head p {
+  margin: 0;
+  color: rgba(255,255,255,.76);
+  font-size: 13px;
+}
+
+.calendar-v11-agenda-list {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  max-height: 680px;
+  overflow: auto;
+}
+
+.calendar-v11-agenda-card {
+  padding: 15px;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid rgba(148,163,184,.24);
+  border-left: 5px solid var(--c-primary);
+  box-shadow: 0 14px 34px rgba(15,23,42,.07);
+}
+
+.calendar-v11-agenda-card.no-material {
+  border-left-color: #ef4444;
+}
+
+.agenda-v11-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.agenda-v11-top strong {
+  color: #0f172a;
+  font-size: 12px;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+
+.agenda-v11-top small {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 9px;
+  font-weight: 950;
+  white-space: nowrap;
+}
+
+.calendar-v11-agenda-card h4 {
+  margin: 10px 0 5px;
+  color: #0f172a;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.calendar-v11-agenda-card p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.agenda-v11-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.agenda-v11-actions button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 14px;
+  background: #eef2ff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.agenda-v11-actions .material-action {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.calendar-v11-empty {
+  padding: 28px 18px;
+  text-align: center;
+  border-radius: 18px;
+  background: #f8fafc;
+  border: 1px dashed rgba(148,163,184,.36);
+}
+
+.calendar-v11-empty strong,
+.calendar-v11-empty span {
+  display: block;
+}
+
+.calendar-v11-empty strong {
+  color: #0f172a;
+}
+
+.calendar-v11-empty span {
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+@media (max-width: 1250px) {
+  .calendar-v11-hero,
+  .calendar-v11-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-v11-controls {
+    justify-content: flex-start;
+  }
+
+  .calendar-v11-agenda {
+    position: static;
+  }
+
+  .calendar-v11-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .calendar-v11-stats,
+  .calendar-v11-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-v11-board {
+    overflow-x: auto;
+  }
+
+  .calendar-v11-weekdays,
+  .calendar-v11-grid {
+    min-width: 980px;
   }
 }
 
