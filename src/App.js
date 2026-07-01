@@ -5906,4 +5906,13 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
 .ops-v13-note { margin-top: 14px; padding: 12px 14px; border-radius: 15px; background: #f8fafc; color: #475569; border: 1px dashed rgba(148,163,184,.35); font-size: 12px; font-weight: 800; }
 @media (max-width: 900px) { .ops-v13-grid { grid-template-columns: 1fr; } }
 
+
+/* AZP FIX - Ocultar pagos operativos hasta registrar pago */
+.operational-payments-v13,
+.operational-payments-panel-v13,
+.operational-ledger-v13,
+.finanzas-operational-v13 {
+  display: none !important;
+}
+
 `;
