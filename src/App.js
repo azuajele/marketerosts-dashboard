@@ -190,6 +190,26 @@ const isWriterRole = (user) => String(user?.role || "").toLowerCase().includes("
 const isDesignerRole = (user) => String(user?.role || "").toLowerCase().includes("diseñador") || String(user?.role || "").toLowerCase().includes("disenador");
 const isStaffUser = (user) => Boolean(user?.email && isAllowedUser(user.email));
 
+
+const AZP_CRM_FINANZAS_V13 = true;
+
+const monthKeyV13 = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+
+const loadOperationalLedgerV13 = () => {
+  try { return JSON.parse(localStorage.getItem("azp_operational_ledger_v13") || "{}"); }
+  catch { return {}; }
+};
+
+const saveOperationalLedgerV13 = (value) => {
+  localStorage.setItem("azp_operational_ledger_v13", JSON.stringify(value));
+};
+
+const OPERATIONAL_PAYMENTS_V13 = [
+  { key: "gasolina", label: "Gasolina", amount: 700 },
+  { key: "paloma", label: "Paloma", amount: 600 },
+  { key: "jarek", label: "Jarek", amount: 250 },
+];
+
 const AZP_PUBLICACIONES_HISTORIAS_V12 = true;
 
 const NETWORK_LABELS_V12 = {
@@ -1292,7 +1312,8 @@ function CRMView({ empresas, calendario, setModalCRM, setModalConsult, setModalC
           </thead>
           <tbody>
             {filtered.map((emp) => {
-              const pubsMes = calendario.filter((c) => sameId(c.empresa_id, emp.id) && String(c.fecha || "").startsWith(curMonthStr())).length;
+              const pubsMesItems = calendario.filter((c) => sameId(c.empresa_id, emp.id) && String(c.fecha || "").startsWith(curMonthStr()));
+              const pubsMes = typeof countByUnitsV12 === "function" ? countByUnitsV12(pubsMesItems) : pubsMesItems.length;
               const cuota = Number(emp.cuota_mensual || 12);
               const pct = Math.min((pubsMes / cuota) * 100, 100);
 
@@ -1944,6 +1965,21 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
 
 
 function FinanzasView({ finanzas, empresas, setModalFin, agencia, getEmpresa }) {
+  const [operationalLedgerV13, setOperationalLedgerV13] = useState(() => loadOperationalLedgerV13());
+  const currentMonthV13 = monthKeyV13();
+  const currentLedgerV13 = operationalLedgerV13[currentMonthV13] || {};
+  const setOperationalPaidV13 = (key, value) => {
+    const next = {
+      ...operationalLedgerV13,
+      [currentMonthV13]: {
+        ...(operationalLedgerV13[currentMonthV13] || {}),
+        [key]: value ? new Date().toISOString() : null,
+      },
+    };
+    setOperationalLedgerV13(next);
+    saveOperationalLedgerV13(next);
+  };
+
   const [subTab, setSubTab] = useState("Cobranza");
   const hoy = new Date().getDate();
   const registrosMes = finanzas.filter((f) => String(f.fecha || "").startsWith(curMonthStr()));
@@ -2025,6 +2061,32 @@ function FinanzasView({ finanzas, empresas, setModalFin, agencia, getEmpresa }) 
       ) : (
         <div className="card">
           <div className="card-head">
+            
+            <div className="ops-v13-panel">
+              <div>
+                <h3>Pagos operativos por liquidar</h3>
+                <p>Control mensual de conceptos que solo deben incluirse una vez por mes cuando registres pagos en partes.</p>
+              </div>
+              <div className="ops-v13-grid">
+                {OPERATIONAL_PAYMENTS_V13.map((item) => {
+                  const paid = Boolean(currentLedgerV13[item.key]);
+                  return (
+                    <div className={`ops-v13-item ${paid ? "paid" : "pending"}`} key={item.key}>
+                      <strong>{item.label}</strong>
+                      <span>${item.amount.toLocaleString("es-MX")}</span>
+                      <small>{paid ? "Incluido este mes" : "Pendiente por liquidar"}</small>
+                      <button type="button" onClick={() => setOperationalPaidV13(item.key, !paid)}>
+                        {paid ? "Marcar pendiente" : "Marcar incluido"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="ops-v13-note">
+                Al registrar un pago parcial, confirma si en ese pago vas a incluir Gasolina, Paloma o Jarek. Si ya aparece como incluido este mes, no debe repetirse.
+              </div>
+            </div>
+
             <h3>Panel de Cobranza</h3>
             <p>Clientes pendientes de pago en el mes actual.</p>
           </div>
@@ -5819,5 +5881,29 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   color: #ef4444;
   font-weight: 950;
 }
+
+
+/* AZP V13 - CRM por red y control mensual de pagos operativos */
+.ops-v13-panel {
+  margin-bottom: 18px;
+  padding: 20px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #ffffff, #f8fafc);
+  border: 1px solid rgba(148,163,184,.24);
+  box-shadow: 0 14px 36px rgba(15,23,42,.05);
+}
+.ops-v13-panel h3 { margin: 0; color: #0f172a; font-size: 18px; font-weight: 950; }
+.ops-v13-panel p { margin: 5px 0 0; color: #64748b; font-size: 13px; font-weight: 750; }
+.ops-v13-grid { display: grid; grid-template-columns: repeat(3, minmax(160px, 1fr)); gap: 12px; margin-top: 15px; }
+.ops-v13-item { padding: 15px; border-radius: 18px; background: #fff; border: 1px solid rgba(148,163,184,.28); }
+.ops-v13-item strong, .ops-v13-item span, .ops-v13-item small { display: block; }
+.ops-v13-item strong { color: #0f172a; font-size: 14px; font-weight: 950; }
+.ops-v13-item span { margin-top: 5px; color: var(--c-primary); font-size: 22px; font-weight: 950; }
+.ops-v13-item small { margin-top: 4px; color: #64748b; font-weight: 850; }
+.ops-v13-item.pending { border-left: 5px solid #f59e0b; }
+.ops-v13-item.paid { border-left: 5px solid #10b981; }
+.ops-v13-item button { width: 100%; min-height: 38px; margin-top: 12px; border: 0; border-radius: 13px; background: #eef2ff; color: #334155; font-weight: 950; }
+.ops-v13-note { margin-top: 14px; padding: 12px 14px; border-radius: 15px; background: #f8fafc; color: #475569; border: 1px dashed rgba(148,163,184,.35); font-size: 12px; font-weight: 800; }
+@media (max-width: 900px) { .ops-v13-grid { grid-template-columns: 1fr; } }
 
 `;
