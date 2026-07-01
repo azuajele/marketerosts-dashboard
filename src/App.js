@@ -2062,7 +2062,7 @@ function FinanzasView({ finanzas, empresas, setModalFin, agencia, getEmpresa }) 
         <div className="card">
           <div className="card-head">
             
-            <div className="ops-v13-panel">
+            <div className="ops-v13-panel hidden-operational-v13b">
               <div>
                 <h3>Pagos operativos por liquidar</h3>
                 <p>Control mensual de conceptos que solo deben incluirse una vez por mes cuando registres pagos en partes.</p>
@@ -5912,6 +5912,22 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
 .operational-payments-panel-v13,
 .operational-ledger-v13,
 .finanzas-operational-v13 {
+  display: none !important;
+}
+
+
+/* AZP V13B - Ocultar pagos operativos hasta registrar pago */
+.operational-payments-v13,
+.operational-payments-panel-v13,
+.operational-ledger-v13,
+.finanzas-operational-v13,
+.payments-operational-v13,
+.operational-pending-v13 {
+  display: none !important;
+}
+
+
+.hidden-operational-v13b {
   display: none !important;
 }
 
