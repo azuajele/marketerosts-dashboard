@@ -2043,7 +2043,7 @@ function FinanzasView({ finanzas, empresas, setModalFin, agencia, getEmpresa }) 
                       <td>{mx(e.pago_mensual)}</td>
                       <td><span>{getPagoFechasText(e)}</span></td>
                       <td>Día {status.next}</td>
-                      <td>{dif < 0 ? <Badge tone="red">Atrasado {Math.abs(dif)} días</Badge> : dif <= 5 ? <Badge tone="amber">Próximo</Badge> : <Badge>A tiempo</Badge>}</td>
+                      <td>{new Date(dateOnly(new Date().toISOString())) < new Date("2026-07-01") ? <Badge>Inicio de cobranza</Badge> : dif < 0 ? <Badge tone="red">Atrasado {Math.abs(dif)} días</Badge> : dif <= 5 ? <Badge tone="amber">Próximo</Badge> : <Badge>A tiempo</Badge>}</td>
                       <td><button className="btn small green" type="button" onClick={() => enviarWhatsApp(e)}>WhatsApp</button></td>
                     </tr>
                   );
