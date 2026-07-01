@@ -190,6 +190,50 @@ const isWriterRole = (user) => String(user?.role || "").toLowerCase().includes("
 const isDesignerRole = (user) => String(user?.role || "").toLowerCase().includes("diseñador") || String(user?.role || "").toLowerCase().includes("disenador");
 const isStaffUser = (user) => Boolean(user?.email && isAllowedUser(user.email));
 
+const AZP_PUBLICACIONES_HISTORIAS_V12 = true;
+
+const NETWORK_LABELS_V12 = {
+  facebook: "Facebook",
+  instagram: "Instagram",
+  tiktok: "TikTok",
+  linkedin: "LinkedIn",
+  youtube: "YouTube",
+  "instagram story": "Instagram Story",
+  "facebook story": "Facebook Story",
+  "historia instagram": "Instagram Story",
+  "historia facebook": "Facebook Story",
+};
+
+const normalizeNetworkV12 = (value = "") => {
+  const raw = String(value || "").trim();
+  const clean = raw.toLowerCase().replace(/\s+/g, " ");
+  return NETWORK_LABELS_V12[clean] || raw;
+};
+
+const getNetworksV12 = (redes) => {
+  if (Array.isArray(redes)) return redes.map(normalizeNetworkV12).filter(Boolean);
+
+  if (typeof redes === "string") {
+    try {
+      const parsed = JSON.parse(redes);
+      if (Array.isArray(parsed)) return parsed.map(normalizeNetworkV12).filter(Boolean);
+    } catch {}
+
+    return redes.split(/[,|]/).map(normalizeNetworkV12).filter(Boolean);
+  }
+
+  return [];
+};
+
+const isStoryNetworkV12 = (network = "") => /story|historia/i.test(String(network || ""));
+const mainNetworksV12 = (pub) => getNetworksV12(pub?.redes).filter((r) => !isStoryNetworkV12(r));
+const storyNetworksV12 = (pub) => getNetworksV12(pub?.redes).filter(isStoryNetworkV12);
+const publicationUnitsV12 = (pub) => mainNetworksV12(pub).length || 1;
+const storyTextV12 = (pub) => storyNetworksV12(pub).length ? storyNetworksV12(pub).join(", ") : "Sin historias";
+const countByUnitsV12 = (items = [], predicate = () => true) =>
+  items.reduce((sum, item) => sum + (predicate(item) ? publicationUnitsV12(item) : 0), 0);
+
+
 const AZP_PRODUCTION_CONTROL_V10B = true;
 
 const PRODUCTION_PERMISSION_DEFAULTS = {
@@ -1384,12 +1428,12 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas,
   const selectedItems = monthItems.filter((p) => dateOnly(p.fecha) === selectedDate);
 
   const stats = {
-    total: monthItems.length,
-    guion: monthItems.filter((p) => normalizeCalendarStatus(p.estado) === "Guion Pendiente").length,
-    diseno: monthItems.filter((p) => ["En Diseño", "Corrección"].includes(normalizeCalendarStatus(p.estado))).length,
-    revision: monthItems.filter((p) => normalizeCalendarStatus(p.estado) === "Diseño Concluido").length,
-    publicadas: monthItems.filter((p) => normalizeCalendarStatus(p.estado) === "Publicado").length,
-    sinMaterial: monthItems.filter((p) => p.estado === "Cliente no envió material" || (!hasMaterialDrive(p) && normalizeCalendarStatus(p.estado) !== "Publicado")).length,
+    total: countByUnitsV12(monthItems),
+    guion: countByUnitsV12(monthItems, (p) => normalizeCalendarStatus(p.estado) === "Guion Pendiente"),
+    diseno: countByUnitsV12(monthItems, (p) => ["En Diseño", "Corrección"].includes(normalizeCalendarStatus(p.estado))),
+    revision: countByUnitsV12(monthItems, (p) => normalizeCalendarStatus(p.estado) === "Diseño Concluido"),
+    publicadas: countByUnitsV12(monthItems, (p) => normalizeCalendarStatus(p.estado) === "Publicado"),
+    sinMaterial: countByUnitsV12(monthItems, (p) => p.estado === "Cliente no envió material" || (!hasMaterialDrive(p) && normalizeCalendarStatus(p.estado) !== "Publicado")),
   };
 
   const monthName = `${meses[month]} ${year}`;
@@ -1611,15 +1655,23 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas,
                   </div>
                   <h4>{p.tema || "Publicación sin título"}</h4>
                   <p>{p.formato || "Contenido"} · {redesText(p.redes)}</p>
+                  <div className="publication-units-v12">
+                    Cuenta como <strong>{publicationUnitsV12(p)}</strong> publicación(es) del paquete.
+                    {storyNetworksV12(p).length ? <span>Historias: {storyTextV12(p)}</span> : null}
+                  </div>
 
                   <div className="agenda-v11-actions">
                     <button type="button" onClick={() => handleCalendarClick(p)}>
                       {isPaloma && estado === "Publicado" ? "Capturar métricas" : isJarek && estado === "Guion Pendiente" ? "Tomar diseño" : "Abrir"}
                     </button>
-                    {estado !== "Publicado" ? (
+                    {estado !== "Publicado" && !hasMaterialDrive(p) && p.estado !== "Cliente no envió material" ? (
                       <button type="button" className="material-action" onClick={() => markNoMaterial(p)}>
-                        Cliente no envió material
+                        Marcar: cliente no envió material
                       </button>
+                    ) : null}
+
+                    {estado !== "Publicado" && p.estado === "Cliente no envió material" ? (
+                      <div className="material-marked-v12">Marcado como cliente no envió material</div>
                     ) : null}
                   </div>
                 </article>
@@ -1700,12 +1752,12 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
   ];
 
   const stats = {
-    total: visible.length,
-    guiones: visible.filter((p) => normalizeEstado(p.estado) === "Guion Pendiente").length,
-    diseno: visible.filter((p) => ["En Diseño", "Corrección"].includes(normalizeEstado(p.estado))).length,
-    revision: visible.filter((p) => normalizeEstado(p.estado) === "Diseño Concluido").length,
-    publicadas: visible.filter((p) => normalizeEstado(p.estado) === "Publicado").length,
-    sinMaterial: visible.filter((p) => !hasMaterialDrive(p) && normalizeEstado(p.estado) !== "Publicado").length,
+    total: countByUnitsV12(visible),
+    guiones: countByUnitsV12(visible, (p) => normalizeEstado(p.estado) === "Guion Pendiente"),
+    diseno: countByUnitsV12(visible, (p) => ["En Diseño", "Corrección"].includes(normalizeEstado(p.estado))),
+    revision: countByUnitsV12(visible, (p) => normalizeEstado(p.estado) === "Diseño Concluido"),
+    publicadas: countByUnitsV12(visible, (p) => normalizeEstado(p.estado) === "Publicado"),
+    sinMaterial: countByUnitsV12(visible, (p) => !hasMaterialDrive(p) && normalizeEstado(p.estado) !== "Publicado"),
   };
 
   const canFinishDesign = (p) => {
@@ -1750,6 +1802,10 @@ function ProduccionView({ calendario, getEmpresa, updatePubState, setModalPub, s
 
         <h4>{p.tema || "Publicación sin título"}</h4>
         <p>{redesText(p.redes)}</p>
+        <div className="publication-units-v12 compact">
+          Cuenta como <strong>{publicationUnitsV12(p)}</strong> publicación(es)
+          {storyNetworksV12(p).length ? <span> · Historias: {storyTextV12(p)}</span> : null}
+        </div>
 
         <div className="production-card-v10b-tags">
           {urgent ? <span className="tag-priority">Prioridad {p.prioridad}</span> : null}
@@ -2790,8 +2846,8 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
         </div>
 
         <aside className="pauta-side">
-          <h4>Redes donde se publicará</h4>
-          <p>Esto alimenta métricas y reporte PDF.</p>
+          <h4>Redes y ubicaciones donde se publicará</h4>
+          <p>Cada red principal cuenta como una publicación. Las historias se muestran como ubicación adicional.</p>
           <div className="social-picker">
             {SOCIAL_OPTIONS.map((red) => (
               <label key={red.key} className={form.redes?.includes(red.key) ? "selected" : ""}>
@@ -5704,6 +5760,64 @@ td span { display: block; color: var(--muted); font-size: 12px; margin-top: 3px;
   .calendar-v11-grid {
     min-width: 980px;
   }
+}
+
+
+/* AZP V12 - Conteo real por red + historias + material correcto */
+.publication-units-v12 {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-radius: 13px;
+  background: #f8fafc;
+  border: 1px solid rgba(148,163,184,.24);
+  color: #475569;
+  font-size: 11px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.publication-units-v12 strong {
+  color: var(--c-primary);
+  font-weight: 950;
+}
+
+.publication-units-v12 span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+}
+
+.publication-units-v12.compact {
+  font-size: 10px;
+  padding: 7px 8px;
+}
+
+.publication-units-v12.compact span {
+  display: inline;
+  margin-top: 0;
+}
+
+.material-marked-v12 {
+  min-height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 9px 10px;
+  border-radius: 14px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: 12px;
+  font-weight: 950;
+  text-align: center;
+}
+
+.calendar-v11-agenda-card:not(.no-material) .material-action {
+  display: none !important;
+}
+
+.calendar-v11-mini.no-material strong::after {
+  content: " · Sin material";
+  color: #ef4444;
+  font-weight: 950;
 }
 
 `;
