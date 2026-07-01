@@ -1380,8 +1380,14 @@ function CRMView({ empresas, calendario, setModalCRM, setModalConsult, setModalC
 
 function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas, updatePubState, user }) {
   const now = new Date();
+  const localDateKeyCalendar = (d = new Date()) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
   const [viewDate, setViewDate] = useState(() => new Date(now.getFullYear(), now.getMonth(), 1));
-  const [selectedDate, setSelectedDate] = useState(dateOnly(now.toISOString()));
+  const [selectedDate, setSelectedDate] = useState(localDateKeyCalendar(now));
   const [empresaFiltro, setEmpresaFiltro] = useState("__all");
   const [estadoFiltro, setEstadoFiltro] = useState("__all");
 
@@ -1446,6 +1452,18 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas,
     })
     .sort((a, b) => String(a.fecha || "").localeCompare(String(b.fecha || "")));
 
+  const todayLocalCalendar = localDateKeyCalendar(new Date());
+
+  useEffect(() => {
+    const todayInThisMonth = todayLocalCalendar >= monthStart && todayLocalCalendar <= monthEnd;
+    const selectedIsFirstDay = selectedDate === monthStart;
+    const todayHasItems = monthItems.some((p) => dateOnly(p.fecha) === todayLocalCalendar);
+
+    if (todayInThisMonth && selectedIsFirstDay && todayHasItems) {
+      setSelectedDate(todayLocalCalendar);
+    }
+  }, [todayLocalCalendar, monthStart, monthEnd, selectedDate, monthItems]);
+
   const selectedItems = monthItems.filter((p) => dateOnly(p.fecha) === selectedDate);
 
   const stats = {
@@ -1470,7 +1488,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas,
   const goToday = () => {
     const today = new Date();
     setViewDate(new Date(today.getFullYear(), today.getMonth(), 1));
-    setSelectedDate(dateOnly(today.toISOString()));
+    setSelectedDate(localDateKeyCalendar(today));
   };
 
   const setMonth = (newMonth) => {
@@ -1557,6 +1575,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas,
         key={p.id}
         onClick={(e) => {
           e.stopPropagation();
+          setSelectedDate(dateOnly(p.fecha));
           handleCalendarClick(p);
         }}
       >
@@ -1624,7 +1643,7 @@ function CalendarioView({ calendario, getEmpresa, setModalPub, setModalMetricas,
               const dateStr = valid ? `${year}-${pad(month + 1)}-${pad(day)}` : "";
               const items = valid ? getDayItems(dateStr) : [];
               const isSelected = valid && selectedDate === dateStr;
-              const isToday = valid && dateOnly(new Date().toISOString()) === dateStr;
+              const isToday = valid && localDateKeyCalendar(new Date()) === dateStr;
               const preview = items.slice(0, 3);
               const hidden = Math.max(items.length - preview.length, 0);
 
