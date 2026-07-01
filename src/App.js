@@ -66,6 +66,21 @@ const normalizeSeguidores = (value = {}) => {
   return { ...base, _activos: activos.length ? activos : ["facebook", "instagram"] };
 };
 
+const hasMaterialDrive = (pub = {}) => {
+  const explicitNoMaterial =
+    pub.estado === "Cliente no envió material" ||
+    pub.sin_material === true ||
+    pub.no_material === true ||
+    pub.material_no_disponible === true ||
+    pub.cliente_no_envio_material === true;
+
+  if (explicitNoMaterial) return false;
+
+  // El material de apoyo es opcional. Si no se marcó manualmente como faltante,
+  // la publicación NO debe aparecer como bloqueada por material.
+  return true;
+};
+
 const redesText = (redes = []) => {
   if (!Array.isArray(redes) || redes.length === 0) return "Sin redes";
   return redes.map((key) => SOCIAL_OPTIONS.find((r) => r.key === key)?.label || key).join(", ");
@@ -333,7 +348,6 @@ const safeString = (value, fallback = "") => String(value ?? fallback).trim();
 const normalizeId = (value) => String(value ?? "").trim();
 const sameId = (a, b) => normalizeId(a) !== "" && normalizeId(a) === normalizeId(b);
 const dateOnly = (value) => String(value || "").slice(0, 10);
-const hasMaterialDrive = (pub) => safeString(pub?.material_drive).length > 0;
 
 
 const getInitials = (name = "Empresa") =>
@@ -2916,7 +2930,7 @@ function ModalPub({ initial = {}, empresas, onSave, onClose, user }) {
             <Field label="Material de apoyo opcional"><input value={form.material_drive || ""} onChange={(e) => setForm({ ...form, material_drive: e.target.value, material_missing: false })} placeholder="Opcional: link de Drive, carpeta, referencia o briefing visual" /></Field>
             <label className="material-toggle">
               <input type="checkbox" checked={Boolean(form.material_missing || form.estado === "Falta Material Drive")} onChange={(e) => setForm({ ...form, material_missing: e.target.checked, material_drive: e.target.checked ? "" : form.material_drive, estado: e.target.checked ? "Falta Material Drive" : (form.estado === "Falta Material Drive" ? "Guion Pendiente" : form.estado) })} />
-              <span>No hay material disponible para esta publicación</span>
+              <span>Marcar si el cliente no envió material</span>
             </label>
           </div>
 
